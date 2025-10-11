@@ -3,6 +3,7 @@ import logging
 import os
 import json
 import time
+import random
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple, Any
 
@@ -27,16 +28,24 @@ if TRANS_CACHE_FILE.exists():
 else:
     trans_cache = {}
 
-TIMEOUT = httpx.Timeout(20.0, connect=10.0)
+TIMEOUT = httpx.Timeout(30.0, connect=15.0)  # Увеличили timeout
 # Используем современный User-Agent и явно указываем английский язык
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Cache-Control": "max-age=0",
     "DNT": "1",
     "Connection": "keep-alive",
     "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Sec-CH-UA": '"Not_A Brand";v="8", "Chromium";v="131", "Google Chrome";v="131"',
+    "Sec-CH-UA-Mobile": "?0",
+    "Sec-CH-UA-Platform": '"Windows"',
 }
 
 FETCH_RETRIES = int(os.getenv("FETCH_RETRIES", "3"))
@@ -140,10 +149,15 @@ async def run_update() -> dict:
     changed_sections_total = 0
 
     async with httpx.AsyncClient(timeout=TIMEOUT, headers=HEADERS, follow_redirects=True) as client:
-        for src in SOURCES:
+        for idx, src in enumerate(SOURCES):
             tag, url, title_hint = src.get("tag"), src.get("url"), src.get("title")
             if not tag or not url:
                 continue
+
+            # Задержка между запросами для избежания блокировок (2-4 секунды)
+            if idx > 0:
+                delay = 2.0 + random.random() * 2.0
+                await asyncio.sleep(delay)
 
             try:
                 html = await _http_get_with_retries(client, url)
