@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
 import os
+import asyncio
 from html import escape
 import re
 from collections import defaultdict
@@ -408,6 +409,8 @@ async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     out = p
             out = _sanitize_telegram_html(out)
             await update.message.reply_html(out, disable_web_page_preview=True)
+            # Задержка для избежания flood control (30 мсг/сек = ~33 мс)
+            await asyncio.sleep(0.05)
 
 async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -454,6 +457,8 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             out = p
                     out = _sanitize_telegram_html(out)
                     await q.message.reply_html(out, disable_web_page_preview=True)
+                    # Задержка для избежания flood control
+                    await asyncio.sleep(0.05)
 
         elif data == "status":
             s = get_stats()
@@ -497,6 +502,8 @@ async def cmd_testdispatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     out = p
             out = _sanitize_telegram_html(out)
             await context.bot.send_message(chat_id=DEV_ID, text=out, parse_mode="HTML", disable_web_page_preview=True)
+            # Задержка для избежания flood control
+            await asyncio.sleep(0.05)
             sent += 1
     await update.message.reply_text(f"Готово: отправлено {sent} сообщений в DEV.")
 
