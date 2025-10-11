@@ -28,7 +28,16 @@ else:
     trans_cache = {}
 
 TIMEOUT = httpx.Timeout(20.0, connect=10.0)
-HEADERS = {"User-Agent": "MetaNewsWatcher/1.0 (+telegram bot)"}
+# Используем современный User-Agent и явно указываем английский язык
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "DNT": "1",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+}
 
 FETCH_RETRIES = int(os.getenv("FETCH_RETRIES", "3"))
 FETCH_RETRY_BACKOFF = float(os.getenv("FETCH_RETRY_BACKOFF", "1.2"))
