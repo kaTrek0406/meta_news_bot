@@ -54,10 +54,38 @@ REGION_SETTINGS = {
 
 region_config = REGION_SETTINGS.get(TARGET_REGION, REGION_SETTINGS["MD"])
 
-# Эмулируем браузер из выбранного региона
-# httpx автоматически добавляет Accept-Encoding и декодирует gzip/deflate/brotli
+# Ротация User-Agent для более реалистичного поведения
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15",
+]
+
+def _get_random_headers():
+    """Генерирует случайные заголовки для каждого запроса"""
+    ua = random.choice(USER_AGENTS)
+    return {
+        "User-Agent": ua,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": region_config["lang"],
+        "Cache-Control": "max-age=0",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Sec-CH-UA": '"Not_A Brand";v="8", "Chromium";v="131"',
+        "Sec-CH-UA-Mobile": "?0",
+        "Sec-CH-UA-Platform": '"Windows"',
+    }
+
+# Базовые заголовки (используются если не нужна ротация)
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "User-Agent": USER_AGENTS[0],
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
     "Accept-Language": region_config["lang"],  # Язык по региону
     # Accept-Encoding не указываем - httpx сделает сам и распакует
@@ -174,20 +202,44 @@ async def run_update() -> dict:
     changed_pages = 0
     changed_sections_total = 0
 
-    async with httpx.AsyncClient(timeout=TIMEOUT, headers=HEADERS, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
         for src_idx, src in enumerate(SOURCES):
             tag, url, title_hint = src.get("tag"), src.get("url"), src.get("title")
             if not tag or not url:
                 continue
 
-            # Задержка между запросами для избежания блокировок (5-10 секунд)
-            # Facebook очень агрессивно блокирует - делаем больше паузы
+            # Рандомные задержки как у человека: иногда быстро, иногда медленнее
             if src_idx > 0:
-                delay = 5.0 + random.random() * 5.0  # 5-10 секунд
+                # 70% времени: короткая пауза 1.5-4 секунды
+                # 30% времени: более длинная пауза 5-8 секунд (как будто человек отвлёкся)
+                if random.random() < 0.7:
+                    delay = 1.5 + random.random() * 2.5  # 1.5-4 сек
+                else:
+                    delay = 5.0 + random.random() * 3.0  # 5-8 сек
                 await asyncio.sleep(delay)
 
+            # Используем случайные заголовки для каждого запроса
+            headers = _get_random_headers()
+            
             try:
-                html = await _http_get_with_retries(client, url)
+                # Retry логика с разными заголовками
+                err = None
+                for attempt in range(FETCH_RETRIES):
+                    try:
+                        r = await client.get(url, headers=headers)
+                        r.raise_for_status()
+                        html = r.text
+                        break  # Успешно!
+                    except Exception as e:
+                        err = e
+                        if attempt < FETCH_RETRIES - 1:
+                            backoff = FETCH_RETRY_BACKOFF * (2 ** attempt)
+                            await asyncio.sleep(backoff)
+                            # Меняем заголовки для следующей попытки
+                            headers = _get_random_headers()
+                else:
+                    # Все попытки исчерпаны
+                    raise err if err else RuntimeError("unknown http error")
             except Exception as e:
                 log.error("Ошибка при загрузке %s: %s", url, e)
                 errors.append({"tag": tag, "url": url, "error": str(e)})
