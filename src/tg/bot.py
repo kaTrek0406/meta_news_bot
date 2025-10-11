@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from telegram import BotCommand
 from telegram.ext import Application, ApplicationBuilder
 
-from .handlers import setup_handlers, _format_detailed_diff  # используем форматтер из handlers
+from .handlers import setup_handlers, _format_detailed_diff, _sanitize_telegram_html  # используем форматтер из handlers
 from ..pipeline import run_update
 from ..llm_client import translate_compact_html  # автоперевод/сжатие
 from ..config import LOGS_DIR
@@ -136,6 +136,7 @@ async def _daily_job(context):
                         out = translate_compact_html(out, target_lang="ru", max_len=MAX_NOTIFY_CHARS)
                     except Exception:
                         out = p
+                out = _sanitize_telegram_html(out)
                 for cid in recipients:
                     await _send_html(app, cid, out)
 

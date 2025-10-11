@@ -1,0 +1,17 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "python -m src.tg.bot"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+# Настройка постоянного хранилища для data/ и logs/
+# Предотвращает очистку кэша при каждом редеплое
+[[deploy.volumes]]
+mountPath = "/app/data"
+name = "bot-data-volume"
+
+[[deploy.volumes]]
+mountPath = "/app/logs"
+name = "bot-logs-volume"

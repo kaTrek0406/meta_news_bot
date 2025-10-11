@@ -24,6 +24,17 @@ from ..llm_client import translate_compact_html  # автоперевод/сжа
 
 log = logging.getLogger(__name__)
 
+# Функция для очистки HTML от неподдерживаемых Telegram тегов
+def _sanitize_telegram_html(html: str) -> str:
+    """Удаляет или заменяет HTML теги, не поддерживаемые Telegram.
+    Telegram поддерживает только: <b>, <i>, <u>, <s>, <a>, <code>, <pre>
+    """
+    # Заменяем h1-h6 на bold
+    html = re.sub(r'<h[1-6]>(.*?)</h[1-6]>', r'<b>\1</b>', html, flags=re.IGNORECASE | re.DOTALL)
+    # Убираем другие неподдерживаемые теги, сохраняя содержимое
+    html = re.sub(r'</?(?:div|span|p|br|hr|ul|ol|li|table|tr|td|th|thead|tbody)[^>]*>', '', html, flags=re.IGNORECASE)
+    return html
+
 CATS = {
     "news_policy": ("⚖", "Политика"),
     "news_product": ("🛠", "Продукты"),
@@ -395,6 +406,7 @@ async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     out = translate_compact_html(out, target_lang="ru", max_len=MAX_NOTIFY_CHARS)
                 except Exception:
                     out = p
+            out = _sanitize_telegram_html(out)
             await update.message.reply_html(out, disable_web_page_preview=True)
 
 async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -440,6 +452,7 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             out = translate_compact_html(out, target_lang="ru", max_len=MAX_NOTIFY_CHARS)
                         except Exception:
                             out = p
+                    out = _sanitize_telegram_html(out)
                     await q.message.reply_html(out, disable_web_page_preview=True)
 
         elif data == "status":
@@ -482,6 +495,7 @@ async def cmd_testdispatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     out = translate_compact_html(out, target_lang="ru", max_len=MAX_NOTIFY_CHARS)
                 except Exception:
                     out = p
+            out = _sanitize_telegram_html(out)
             await context.bot.send_message(chat_id=DEV_ID, text=out, parse_mode="HTML", disable_web_page_preview=True)
             sent += 1
     await update.message.reply_text(f"Готово: отправлено {sent} сообщений в DEV.")
