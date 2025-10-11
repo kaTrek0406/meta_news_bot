@@ -29,12 +29,37 @@ else:
     trans_cache = {}
 
 TIMEOUT = httpx.Timeout(30.0, connect=15.0)  # Увеличили timeout
-# Используем современный User-Agent и явно указываем английский язык
-# Важно: httpx автоматически добавляет Accept-Encoding и декодирует gzip/deflate/brotli
+
+# Настройка региона (можно переопределить через переменную окружения)
+TARGET_REGION = os.getenv("TARGET_REGION", "MD")  # MD=Moldova (EU), US=United States
+
+# Языковые настройки по регионам
+REGION_SETTINGS = {
+    "MD": {
+        "lang": "en-GB,en;q=0.9,ro;q=0.8,ru;q=0.7",  # English (UK/EU), Romanian, Russian
+        "country": "MD",
+        "timezone": "Europe/Chisinau"
+    },
+    "US": {
+        "lang": "en-US,en;q=0.9",
+        "country": "US",
+        "timezone": "America/New_York"
+    },
+    "EU": {
+        "lang": "en-GB,en;q=0.9",
+        "country": "GB",  # UK as EU representative
+        "timezone": "Europe/London"
+    }
+}
+
+region_config = REGION_SETTINGS.get(TARGET_REGION, REGION_SETTINGS["MD"])
+
+# Эмулируем браузер из выбранного региона
+# httpx автоматически добавляет Accept-Encoding и декодирует gzip/deflate/brotli
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Language": region_config["lang"],  # Язык по региону
     # Accept-Encoding не указываем - httpx сделает сам и распакует
     "Cache-Control": "max-age=0",
     "DNT": "1",
