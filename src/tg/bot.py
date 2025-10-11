@@ -161,6 +161,30 @@ def _schedule_daily(app: Application):
 # ──────────────────────────────────────────────────────────────
 # 5) Старт
 # ──────────────────────────────────────────────────────────────
+async def error_handler(update, context):
+    """Обработчик ошибок - логируем и уведомляем разработчика."""
+    from telegram.error import Conflict
+    
+    # Игнорируем конфликты (два бота запущены одновременно)
+    if isinstance(context.error, Conflict):
+        log.warning("⚠️ Конфликт ботов: запущено 2 экземпляра одновременно. Остановите один из них.")
+        return
+    
+    log.error("Ошибка в боте: %s", context.error, exc_info=context.error)
+    
+    # Уведомляем разработчика о критических ошибках
+    dev_id = _dev_id()
+    if dev_id and context.application:
+        try:
+            error_msg = f"⚠️ <b>Ошибка в боте:</b>\n<code>{str(context.error)[:800]}</code>"
+            await context.application.bot.send_message(
+                chat_id=dev_id,
+                text=error_msg,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            log.error("Не удалось отправить уведомление об ошибке: %s", e)
+
 def run_bot():
     _load_env()
     _setup_logging()
@@ -171,6 +195,10 @@ def run_bot():
         raise RuntimeError("TELEGRAM_BOT_TOKEN не задан")
 
     app: Application = ApplicationBuilder().token(token).build()
+    
+    # Добавляем обработчик ошибок
+    app.add_error_handler(error_handler)
+    
     setup_handlers(app)
 
     commands = [
