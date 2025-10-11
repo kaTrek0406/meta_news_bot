@@ -180,9 +180,10 @@ async def run_update() -> dict:
             if not tag or not url:
                 continue
 
-            # Задержка между запросами для избежания блокировок (2-4 секунды)
+            # Задержка между запросами для избежания блокировок (5-10 секунд)
+            # Facebook очень агрессивно блокирует - делаем больше паузы
             if src_idx > 0:
-                delay = 2.0 + random.random() * 2.0
+                delay = 5.0 + random.random() * 5.0  # 5-10 секунд
                 await asyncio.sleep(delay)
 
             try:

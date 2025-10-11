@@ -32,8 +32,8 @@ def _sanitize_telegram_html(html: str) -> str:
     """
     # Заменяем h1-h6 на bold
     html = re.sub(r'<h[1-6]>(.*?)</h[1-6]>', r'<b>\1</b>', html, flags=re.IGNORECASE | re.DOTALL)
-    # Убираем другие неподдерживаемые теги, сохраняя содержимое
-    html = re.sub(r'</?(?:div|span|p|br|hr|ul|ol|li|table|tr|td|th|thead|tbody)[^>]*>', '', html, flags=re.IGNORECASE)
+    # Убираем неподдерживаемые теги (НЕ трогаем b, i, u, s, a, code, pre)
+    html = re.sub(r'</?(?:div|span|p|br|hr|ul|ol|li|table|tr|td|th|thead|tbody|h[1-6]|img|form|input|button|script|style)[^>]*>', '', html, flags=re.IGNORECASE)
     return html
 
 CATS = {
