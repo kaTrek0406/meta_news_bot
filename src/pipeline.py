@@ -149,13 +149,13 @@ async def run_update() -> dict:
     changed_sections_total = 0
 
     async with httpx.AsyncClient(timeout=TIMEOUT, headers=HEADERS, follow_redirects=True) as client:
-        for idx, src in enumerate(SOURCES):
+        for src_idx, src in enumerate(SOURCES):
             tag, url, title_hint = src.get("tag"), src.get("url"), src.get("title")
             if not tag or not url:
                 continue
 
             # Задержка между запросами для избежания блокировок (2-4 секунды)
-            if idx > 0:
+            if src_idx > 0:
                 delay = 2.0 + random.random() * 2.0
                 await asyncio.sleep(delay)
 
