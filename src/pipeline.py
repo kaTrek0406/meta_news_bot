@@ -98,24 +98,6 @@ def _get_random_headers():
         "Sec-CH-UA-Platform": '"Windows"',
     }
 
-# Базовые заголовки (используются если не нужна ротация)
-HEADERS = {
-    "User-Agent": USER_AGENTS[0],
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-    "Accept-Language": region_config["lang"],  # Язык по региону
-    # Accept-Encoding не указываем - httpx сделает сам и распакует
-    "Cache-Control": "max-age=0",
-    "DNT": "1",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-    "Sec-CH-UA": '"Not_A Brand";v="8", "Chromium";v="131", "Google Chrome";v="131"',
-    "Sec-CH-UA-Mobile": "?0",
-    "Sec-CH-UA-Platform": '"Windows"',
-}
 
 FETCH_RETRIES = int(os.getenv("FETCH_RETRIES", "3"))
 FETCH_RETRY_BACKOFF = float(os.getenv("FETCH_RETRY_BACKOFF", "1.2"))
@@ -182,18 +164,6 @@ def _clip_line(s: str, limit: int = 800) -> str:
         return s
     return s[:limit-1].rstrip() + "…"
 
-async def _http_get_with_retries(client: httpx.AsyncClient, url: str) -> str:
-    err: Exception | None = None
-    for attempt in range(FETCH_RETRIES):
-        try:
-            r = await client.get(url)
-            r.raise_for_status()
-            return r.text
-        except Exception as e:
-            err = e
-            backoff = FETCH_RETRY_BACKOFF * (2 ** attempt)
-            await asyncio.sleep(backoff)
-    raise err if err else RuntimeError("unknown http error")
 
 async def _summarize_async(plain: str) -> str:
     global _last_llm_ts
