@@ -78,10 +78,10 @@ USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15",
 ]
 
-def _get_random_headers():
+def _get_random_headers(url: str = ""):
     """Генерирует случайные заголовки для каждого запроса"""
     ua = random.choice(USER_AGENTS)
-    return {
+    headers = {
         "User-Agent": ua,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Accept-Language": region_config["lang"],
@@ -97,6 +97,14 @@ def _get_random_headers():
         "Sec-CH-UA-Mobile": "?0",
         "Sec-CH-UA-Platform": '"Windows"',
     }
+    
+    # Дополнительные заголовки для WhatsApp
+    if "whatsapp.com" in url:
+        headers["Referer"] = "https://www.google.com/"
+        headers["Sec-Fetch-Site"] = "cross-site"
+        # Эмулируем переход с Google
+    
+    return headers
 
 
 FETCH_RETRIES = int(os.getenv("FETCH_RETRIES", "3"))
@@ -201,17 +209,21 @@ async def run_update() -> dict:
 
             # Увеличенные задержки для избежания блокировок "going too fast"
             if src_idx > 0:
-                # 60% времени: средняя пауза 10-15 секунд
-                # 40% времени: длинная пауза 15-25 секунд (как будто человек читает страницу)
-                if random.random() < 0.6:
-                    delay = 10.0 + random.random() * 5.0  # 10-15 сек
+                # Увеличенные задержки для WhatsApp (более строгие лимиты)
+                if "whatsapp.com" in url:
+                    delay = 30.0 + random.random() * 15.0  # 30-45 сек для WhatsApp
+                    log.info(f"💬 ⏳ WhatsApp: ожидание {delay:.1f} сек (увеличенная пауза)...")
                 else:
-                    delay = 15.0 + random.random() * 10.0  # 15-25 сек
-                log.info(f"⏳ Ожидание {delay:.1f} сек перед следующим запросом...")
+                    # Обычные задержки для остальных сайтов
+                    if random.random() < 0.6:
+                        delay = 10.0 + random.random() * 5.0  # 10-15 сек
+                    else:
+                        delay = 15.0 + random.random() * 10.0  # 15-25 сек
+                    log.info(f"⏳ Ожидание {delay:.1f} сек перед следующим запросом...")
                 await asyncio.sleep(delay)
 
-            # Используем случайные заголовки для каждого запроса
-            headers = _get_random_headers()
+            # Используем случайные заголовки для каждого запроса (с учетом URL)
+            headers = _get_random_headers(url)
             
             try:
                 # Retry логика с разными заголовками
@@ -228,7 +240,7 @@ async def run_update() -> dict:
                             backoff = FETCH_RETRY_BACKOFF * (2 ** attempt)
                             await asyncio.sleep(backoff)
                             # Меняем заголовки для следующей попытки
-                            headers = _get_random_headers()
+                            headers = _get_random_headers(url)
                 else:
                     # Все попытки исчерпаны
                     raise err if err else RuntimeError("unknown http error")
