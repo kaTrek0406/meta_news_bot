@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from typing import Optional
-import os, httpx
+import os, httpx, logging
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "25"))
 
@@ -33,6 +35,9 @@ async def fetch_text(url: str, timeout: Optional[float] = None) -> str:
     if PROXY_HOST and PROXY_USER and PROXY_PASSWORD:
         proxy_url = f"http://{PROXY_USER}:{PROXY_PASSWORD}@{PROXY_HOST}"
         proxies = {"http://": proxy_url, "https://": proxy_url}
+        logger.info(f"🔐 Используется прокси: {PROXY_HOST}")
+    else:
+        logger.warning("⚠️ Прокси не настроен, запросы идут напрямую")
     
     async with httpx.AsyncClient(
         timeout=t,

@@ -5,7 +5,7 @@ import json
 import time
 import random
 from datetime import datetime, timezone
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Optional
 
 import asyncio
 import httpx
@@ -29,6 +29,21 @@ else:
     trans_cache = {}
 
 TIMEOUT = httpx.Timeout(30.0, connect=15.0)  # Увеличили timeout
+
+# Настройки прокси из переменных окружения
+PROXY_HOST = os.getenv("PROXY_HOST", "")
+PROXY_USER = os.getenv("PROXY_USER", "")
+PROXY_PASSWORD = os.getenv("PROXY_PASSWORD", "")
+
+def _get_proxy_config() -> Optional[Dict[str, str]]:
+    """Возвращает настройки прокси для httpx, если они настроены"""
+    if PROXY_HOST and PROXY_USER and PROXY_PASSWORD:
+        proxy_url = f"http://{PROXY_USER}:{PROXY_PASSWORD}@{PROXY_HOST}"
+        log.info(f"🔐 Используется прокси: {PROXY_HOST}")
+        return {"http://": proxy_url, "https://": proxy_url}
+    else:
+        log.warning("⚠️ Прокси не настроен, запросы идут напрямую")
+        return None
 
 # Настройка региона (можно переопределить через переменную окружения)
 TARGET_REGION = os.getenv("TARGET_REGION", "MD")  # MD=Moldova (EU), US=United States
@@ -202,20 +217,24 @@ async def run_update() -> dict:
     changed_pages = 0
     changed_sections_total = 0
 
-    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
+    # Получаем настройки прокси
+    proxies = _get_proxy_config()
+    
+    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True, proxies=proxies) as client:
         for src_idx, src in enumerate(SOURCES):
             tag, url, title_hint = src.get("tag"), src.get("url"), src.get("title")
             if not tag or not url:
                 continue
 
-            # Рандомные задержки как у человека: иногда быстро, иногда медленнее
+            # Увеличенные задержки для избежания блокировок "going too fast"
             if src_idx > 0:
-                # 70% времени: короткая пауза 1.5-4 секунды
-                # 30% времени: более длинная пауза 5-8 секунд (как будто человек отвлёкся)
-                if random.random() < 0.7:
-                    delay = 1.5 + random.random() * 2.5  # 1.5-4 сек
+                # 60% времени: средняя пауза 10-15 секунд
+                # 40% времени: длинная пауза 15-25 секунд (как будто человек читает страницу)
+                if random.random() < 0.6:
+                    delay = 10.0 + random.random() * 5.0  # 10-15 сек
                 else:
-                    delay = 5.0 + random.random() * 3.0  # 5-8 сек
+                    delay = 15.0 + random.random() * 10.0  # 15-25 сек
+                log.info(f"⏳ Ожидание {delay:.1f} сек перед следующим запросом...")
                 await asyncio.sleep(delay)
 
             # Используем случайные заголовки для каждого запроса
