@@ -220,7 +220,10 @@ async def run_update() -> dict:
     # Получаем настройки прокси
     proxies = _get_proxy_config()
     
-    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True, proxies=proxies) as client:
+    # Отключаем проверку SSL если используется прокси (BrightData использует MITM)
+    verify_ssl = proxies is None
+    
+    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True, proxies=proxies, verify=verify_ssl) as client:
         for src_idx, src in enumerate(SOURCES):
             tag, url, title_hint = src.get("tag"), src.get("url"), src.get("title")
             if not tag or not url:
