@@ -24,6 +24,19 @@ python -m src.main
 - `config.json` — окно дней, лимиты, размер страницы, теги.
 - `.env` — токены: `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`.
 
+## Настройка прокси (опционально)
+
+Для обхода блокировок Facebook на облачных хостингах (Railway, AWS и т.д.) можно использовать residential прокси.
+
+Добавьте в `.env` или переменные окружения Railway:
+```
+PROXY_HOST=brd.superproxy.io:33335
+PROXY_USER=brd-customer-hl_3967120c-zone-residential_proxy1
+PROXY_PASSWORD=viv0l29v3tb2
+```
+
+**Примечание:** Если переменные не указаны, бот работает без прокси (подходит для локального запуска).
+
 ## Хранилище
 - `data/items.json` — сохранённые материалы: url, tag, hash, summary_ru, дата.
 - `data/cache.json` — ETag/Last-Modified для источников.

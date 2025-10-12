@@ -10,7 +10,7 @@ async def job():
 
 def run_scheduler():
     sch = AsyncIOScheduler(timezone="UTC")
-    sch.add_job(job, "interval", hours=12, id="periodic_update", max_instances=1, coalesce=True)
+    sch.add_job(job, "interval", hours=24, id="periodic_update", max_instances=1, coalesce=True)
     sch.start()
     return sch
 

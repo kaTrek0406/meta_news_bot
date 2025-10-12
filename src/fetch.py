@@ -4,6 +4,11 @@ import os, httpx
 
 DEFAULT_TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "25"))
 
+# Настройки прокси из переменных окружения
+PROXY_HOST = os.getenv("PROXY_HOST", "")  # например: brd.superproxy.io:33335
+PROXY_USER = os.getenv("PROXY_USER", "")  # например: brd-customer-hl_3967120c-zone-residential_proxy1
+PROXY_PASSWORD = os.getenv("PROXY_PASSWORD", "")  # например: viw0l29v3tb2
+
 # Используем заголовки обычного браузера, чтобы не быть заблокированным Facebook/Meta
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -22,7 +27,19 @@ HEADERS = {
 
 async def fetch_text(url: str, timeout: Optional[float] = None) -> str:
     t = timeout or DEFAULT_TIMEOUT
-    async with httpx.AsyncClient(timeout=t, headers=HEADERS, follow_redirects=True) as client:
+    
+    # Настройка прокси, если указаны переменные окружения
+    proxies = None
+    if PROXY_HOST and PROXY_USER and PROXY_PASSWORD:
+        proxy_url = f"http://{PROXY_USER}:{PROXY_PASSWORD}@{PROXY_HOST}"
+        proxies = {"http://": proxy_url, "https://": proxy_url}
+    
+    async with httpx.AsyncClient(
+        timeout=t,
+        headers=HEADERS,
+        follow_redirects=True,
+        proxies=proxies
+    ) as client:
         r = await client.get(url)
         r.raise_for_status()
         return r.text
