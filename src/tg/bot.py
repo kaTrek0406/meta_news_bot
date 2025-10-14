@@ -123,6 +123,11 @@ async def _daily_job(context):
     try:
         res = await run_update()
         details = res.get("details") or []
+        errors = res.get("errors") or []
+        
+        # Отправляем сводку по ошибкам разработчику
+        from ..error_notifier import notify_errors_summary
+        await notify_errors_summary(errors)
         
         # Фильтруем только значимые изменения
         meaningful_details = [d for d in details if _is_meaningful_change(d)]
