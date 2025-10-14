@@ -236,25 +236,38 @@ async def run_update() -> dict:
                         
                         # Проверка на блокировку Facebook (временная блокировка)
                         if "You're Temporarily Blocked" in html or "going too fast" in html:
-                            raise httpx.HTTPStatusError(
-                                "Temporary block detected",
-                                request=r.request,
-                                response=r
-                            )
+                            # Создаем псевдо-response для обработки
+                            class TempBlockResponse:
+                                status_code = 429
+                                request = r.request
+                            
+                            class TempBlockError(httpx.HTTPStatusError):
+                                def __init__(self):
+                                    self.response = TempBlockResponse()
+                                    super().__init__("Temporary block detected", request=r.request, response=self.response)
+                            
+                            raise TempBlockError()
                         
                         break  # Успешно!
                     except httpx.HTTPStatusError as e:
                         # Обработка 502, 403 и временных блокировок
-                        if e.response.status_code in (502, 503, 429, 403) or "Temporary block" in str(e):
+                        status = getattr(e.response, 'status_code', 0) if hasattr(e, 'response') else 0
+                        if status in (502, 503, 429, 403) or "Temporary block" in str(e):
                             err = e
                             if attempt < FETCH_RETRIES - 1:
                                 # Экспоненциальная задержка при 502 и блокировках
                                 backoff = FETCH_RETRY_BACKOFF * (3 ** attempt) + random.random() * 5
-                                log.warning(f"⚠️ Ошибка {e.response.status_code if hasattr(e, 'response') else 'block'} при загрузке {url}, попытка {attempt+1}/{FETCH_RETRIES}, ожидание {backoff:.1f} сек...")
+                                log.warning(f"⚠️ Ошибка {status} при загрузке {url}, попытка {attempt+1}/{FETCH_RETRIES}, ожидание {backoff:.1f} сек...")
                                 await asyncio.sleep(backoff)
                                 # Меняем заголовки для следующей попытки
                                 headers = _get_random_headers(url)
                             else:
+                                # Если это блокировка Facebook - просто пропускаем
+                                if status == 429:
+                                    log.error(f"❌ Facebook заблокировал запросы: {url}. Пропускаем.")
+                                    # Пропускаем этот URL, не падаем
+                                    err = None
+                                    break
                                 raise
                         else:
                             raise
@@ -269,10 +282,17 @@ async def run_update() -> dict:
                             raise
                 else:
                     # Все попытки исчерпаны
-                    raise err if err else RuntimeError("unknown http error")
+                    if err:
+                        raise err
+                    # Если err = None, значит мы пропустили URL из-за блокировки
             except Exception as e:
                 log.error("Ошибка при загрузке %s: %s", url, e)
                 errors.append({"tag": tag, "url": url, "error": str(e)})
+                continue
+            
+            # Если err = None и мы пропустили URL - переходим к следующему
+            if err is None or not locals().get('html'):
+                errors.append({"tag": tag, "url": url, "error": "Facebook temporary block"})
                 continue
 
             title_auto, full_plain, cleaned_html = clean_html(html, url)
