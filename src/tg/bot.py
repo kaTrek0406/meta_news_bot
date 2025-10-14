@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
 import os
+import asyncio
 import datetime
 from logging.handlers import RotatingFileHandler
 from zoneinfo import ZoneInfo
@@ -9,9 +10,10 @@ from dotenv import load_dotenv
 from telegram import BotCommand
 from telegram.ext import Application, ApplicationBuilder
 
-from .handlers import setup_handlers, _format_detailed_diff, _sanitize_telegram_html  # используем форматтер из handlers
+from .handlers import setup_handlers, _sanitize_telegram_html, _is_meaningful_change  # используем форматтер из handlers
 from ..pipeline import run_update
 from ..llm_client import translate_compact_html  # автоперевод/сжатие
+from ..smart_formatter import format_change_smart  # умное форматирование
 from ..config import LOGS_DIR
 
 log = logging.getLogger(__name__)
@@ -121,14 +123,19 @@ async def _daily_job(context):
     try:
         res = await run_update()
         details = res.get("details") or []
-        if not details:
-            msg = "🟢 За последние сутки изменений нет."
+        
+        # Фильтруем только значимые изменения
+        meaningful_details = [d for d in details if _is_meaningful_change(d)]
+        
+        if not meaningful_details:
+            msg = f"🟢 Всего изменений: {len(details)}\nЗначимых для таргетинга: 0\n\n🟢 Все изменения незначительные (обновление дат, версий)."
             for cid in recipients:
                 await _send_html(app, cid, msg)
             return
 
-        for d in details:
-            parts = _format_detailed_diff(d)
+        for d in meaningful_details:
+            # Используем умное форматирование
+            parts = format_change_smart(d)
             for p in parts:
                 out = p
                 if AUTO_TRANSLATE and _needs_translation(out, MAX_NOTIFY_CHARS):
@@ -139,6 +146,8 @@ async def _daily_job(context):
                 out = _sanitize_telegram_html(out)
                 for cid in recipients:
                     await _send_html(app, cid, out)
+                    # Маленькая задержка между сообщениями
+                    await asyncio.sleep(0.3)
 
     except Exception as e:
         log.error("daily job error: %s", e, exc_info=True)

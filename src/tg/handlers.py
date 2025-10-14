@@ -22,6 +22,7 @@ from telegram.ext import (
 from ..storage import load_cache
 from ..pipeline import run_update, get_stats
 from ..llm_client import translate_compact_html  # автоперевод/сжатие
+from ..smart_formatter import format_change_smart  # умное форматирование
 
 log = logging.getLogger(__name__)
 
@@ -386,6 +387,43 @@ def _needs_translation(s: str) -> bool:
     total = max(1, len(s))
     return en / total > 0.15 or len(s) > MAX_NOTIFY_CHARS
 
+def _is_meaningful_change(detail: dict) -> bool:
+    """
+    Определяет, является ли изменение значимым для таргетолога.
+    Игнорирует: изменения только дат, версий, незначительные правки текста.
+    """
+    gd = detail.get("global_diff") or {}
+    changed = gd.get("changed") or []
+    added = gd.get("added") or []
+    removed = gd.get("removed") or []
+    
+    # Если есть добавления или удаления - это всегда значимо
+    if added or removed:
+        return True
+    
+    # Анализируем изменения
+    for pair in changed:
+        was = (pair.get("was", "") or "").lower()
+        now = (pair.get("now", "") or "").lower()
+        
+        # Убираем даты из сравнения
+        was_no_dates = re.sub(r'\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|янв|фев|мар|апр|май|июн|июл|авг|сен|окт|ноя|дек)[a-zа-я]*\s+\d{4}\b', '', was)
+        now_no_dates = re.sub(r'\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|янв|фев|мар|апр|май|июн|июл|авг|сен|окт|ноя|дек)[a-zа-я]*\s+\d{4}\b', '', now)
+        
+        # Убираем версии (v1.0, version 2, etc)
+        was_no_ver = re.sub(r'\bv?\d+\.\d+(?:\.\d+)?\b', '', was_no_dates)
+        now_no_ver = re.sub(r'\bv?\d+\.\d+(?:\.\d+)?\b', '', now_no_dates)
+        
+        # Убираем лишние пробелы
+        was_clean = re.sub(r'\s+', ' ', was_no_ver).strip()
+        now_clean = re.sub(r'\s+', ' ', now_no_ver).strip()
+        
+        # Если после очистки тексты разные - изменение значимое
+        if was_clean != now_clean and len(now_clean) > 10:
+            return True
+    
+    return False
+
 async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tip = await update.message.reply_text("⏳ Обновляю источники…")
     res = await run_update()
@@ -394,12 +432,20 @@ async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
 
-    msg = f"✅ Обновление завершено.\nСтраниц: {res.get('changed', 0)}, секций: {res.get('sections_total_changed', 0)}"
+    details = res.get("details") or []
+    # Фильтруем только значимые изменения
+    meaningful_details = [d for d in details if _is_meaningful_change(d)]
+    
+    msg = f"✅ Обновление завершено.\nВсего изменений: {len(details)}\nЗначимых для таргетинга: {len(meaningful_details)}"
     await update.message.reply_text(msg)
 
-    details = res.get("details") or []
-    for d in details:
-        parts = _format_detailed_diff(d)
+    if not meaningful_details:
+        await update.message.reply_text("🟢 Все изменения незначительные (обновление дат, версий, и т.д.)")
+        return
+
+    for d in meaningful_details:
+        # Используем умное форматирование
+        parts = format_change_smart(d)
         for p in parts:
             out = p
             if _needs_translation(out):
@@ -409,7 +455,7 @@ async def cmd_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     out = p
             out = _sanitize_telegram_html(out)
             await update.message.reply_html(out, disable_web_page_preview=True)
-            # Задержка для избежания flood control (30 мсг/сек = ~33 мс)
+            # Задержка для избежания flood control
             await asyncio.sleep(0.05)
 
 async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -442,23 +488,31 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == "refresh":
             await q.answer("⏳ Обновляю…", show_alert=False)
             res = await run_update()
-            msg = f"✅ Обновление завершено.\nСтраниц: {res.get('changed', 0)}, секций: {res.get('sections_total_changed', 0)}"
+            
+            details = res.get("details") or []
+            # Фильтруем только значимые изменения
+            meaningful_details = [d for d in details if _is_meaningful_change(d)]
+            
+            msg = f"✅ Обновление завершено.\nВсего изменений: {len(details)}\nЗначимых для таргетинга: {len(meaningful_details)}"
             await q.message.reply_text(msg)
 
-            details = res.get("details") or []
-            for d in details:
-                parts = _format_detailed_diff(d)
-                for p in parts:
-                    out = p
-                    if _needs_translation(out):
-                        try:
-                            out = translate_compact_html(out, target_lang="ru", max_len=MAX_NOTIFY_CHARS)
-                        except Exception:
-                            out = p
-                    out = _sanitize_telegram_html(out)
-                    await q.message.reply_html(out, disable_web_page_preview=True)
-                    # Задержка для избежания flood control
-                    await asyncio.sleep(0.05)
+            if not meaningful_details:
+                await q.message.reply_text("🟢 Все изменения незначительные (обновление дат, версий, и т.д.)")
+            else:
+                for d in meaningful_details:
+                    # Используем умное форматирование
+                    parts = format_change_smart(d)
+                    for p in parts:
+                        out = p
+                        if _needs_translation(out):
+                            try:
+                                out = translate_compact_html(out, target_lang="ru", max_len=MAX_NOTIFY_CHARS)
+                            except Exception:
+                                out = p
+                        out = _sanitize_telegram_html(out)
+                        await q.message.reply_html(out, disable_web_page_preview=True)
+                        # Задержка для избежания flood control
+                        await asyncio.sleep(0.05)
 
         elif data == "status":
             s = get_stats()
@@ -485,14 +539,20 @@ async def cmd_testdispatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("▶️ Запускаю тестовую рассылку (только dev)…")
     res = await run_update()
     details = res.get("details") or []
-    if not details:
-        await context.bot.send_message(chat_id=DEV_ID, text="🟢 За последние сутки изменений нет.", parse_mode="HTML")
-        await update.message.reply_text("Готово: изменений не было.")
+    
+    # Фильтруем только значимые изменения
+    meaningful_details = [d for d in details if _is_meaningful_change(d)]
+    
+    if not meaningful_details:
+        msg = f"🟢 Всего изменений: {len(details)}\nЗначимых для таргетинга: 0\n\n🟢 Все изменения незначительные."
+        await context.bot.send_message(chat_id=DEV_ID, text=msg, parse_mode="HTML")
+        await update.message.reply_text("Готово: значимых изменений не было.")
         return
 
     sent = 0
-    for d in details:
-        parts = _format_detailed_diff(d)
+    for d in meaningful_details:
+        # Используем умное форматирование
+        parts = format_change_smart(d)
         for p in parts:
             out = p
             if _needs_translation(out):
@@ -505,7 +565,8 @@ async def cmd_testdispatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Задержка для избежания flood control
             await asyncio.sleep(0.05)
             sent += 1
-    await update.message.reply_text(f"Готово: отправлено {sent} сообщений в DEV.")
+    
+    await update.message.reply_text(f"Готово: {len(details)} изменений, {len(meaningful_details)} значимых, {sent} сообщений отправлено.")
 
 def setup_handlers(app):
     app.add_handler(CommandHandler("start", cmd_start))
