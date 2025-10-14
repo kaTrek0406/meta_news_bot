@@ -35,11 +35,28 @@ PROXY_HOST = os.getenv("PROXY_HOST", "")
 PROXY_USER = os.getenv("PROXY_USER", "")
 PROXY_PASSWORD = os.getenv("PROXY_PASSWORD", "")
 
-def _get_proxy_config() -> Optional[Dict[str, str]]:
-    """Возвращает настройки прокси для httpx, если они настроены"""
+def _get_proxy_config(session_id: Optional[str] = None) -> Optional[Dict[str, str]]:
+    """
+    Возвращает настройки прокси для httpx, если они настроены.
+    
+    Параметры:
+    - session_id: ИД сессии для BrightData (использует один IP для всех запросов)
+    """
     if PROXY_HOST and PROXY_USER and PROXY_PASSWORD:
-        proxy_url = f"http://{PROXY_USER}:{PROXY_PASSWORD}@{PROXY_HOST}"
-        log.info(f"🔐 Используется прокси: {PROXY_HOST}")
+        proxy_user = PROXY_USER
+        
+        # Добавляем привязку к стране и session ID
+        if "-country-" not in proxy_user:
+            # Если нет указания страны - добавляем TARGET_REGION
+            country_code = TARGET_REGION.lower() if TARGET_REGION != "AUTO" else "md"
+            proxy_user = f"{proxy_user}-country-{country_code}"
+        
+        # Добавляем session ID для использования одного IP
+        if session_id and "-session-" not in proxy_user:
+            proxy_user = f"{proxy_user}-session-{session_id}"
+        
+        proxy_url = f"http://{proxy_user}:{PROXY_PASSWORD}@{PROXY_HOST}"
+        log.info(f"🔐 Используется прокси: {PROXY_HOST} (страна: {TARGET_REGION}, session: {session_id or 'нет'})")
         return {"http://": proxy_url, "https://": proxy_url}
     else:
         log.warning("⚠️ Прокси не настроен, запросы идут напрямую")
@@ -195,8 +212,11 @@ async def run_update() -> dict:
     changed_pages = 0
     changed_sections_total = 0
 
-    # Получаем настройки прокси
-    proxies = _get_proxy_config()
+    # Генерируем session ID для использования одного IP для всех запросов
+    session_id = f"session_{int(time.time())}"
+    
+    # Получаем настройки прокси с session ID
+    proxies = _get_proxy_config(session_id)
     
     # Отключаем проверку SSL если используется прокси (BrightData использует MITM)
     verify_ssl = proxies is None
