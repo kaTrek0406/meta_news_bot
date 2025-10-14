@@ -14,9 +14,10 @@ MAX_LEN = 3500
 def _parse_ids(s: str):
     return [p.strip() for p in (s or "").split(",") if p.strip()]
 
-async def _send(client: httpx.AsyncClient, chat_id: str, text: str):
+async def _send(client: httpx.AsyncClient, chat_id: str, text: str) -> bool:
+    """Отправляет сообщение в Telegram. Возвращает True если успешно, False если чат не найден."""
     if not BOT_TOKEN or not chat_id:
-        return
+        return False
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": chat_id,
@@ -24,7 +25,20 @@ async def _send(client: httpx.AsyncClient, chat_id: str, text: str):
         "parse_mode": "HTML",
         "disable_web_page_preview": True
     }
-    await client.post(url, json=payload)
+    try:
+        resp = await client.post(url, json=payload)
+        resp.raise_for_status()
+        return True
+    except httpx.HTTPStatusError as e:
+        # Чат не найден - пользователь удалил бота или заблокировал
+        if e.response.status_code == 400:
+            error_data = e.response.json()
+            if "chat not found" in error_data.get("description", "").lower():
+                log.warning(f"⚠️ Чат {chat_id} не найден (пользователь удалил/заблокировал бота)")
+                return False
+        raise
+    except Exception:
+        raise
 
 async def notify(text: str) -> None:
     if not BOT_TOKEN or not CHAT_ID:
@@ -39,14 +53,20 @@ async def notify(text: str) -> None:
     chunks.append(text)
 
     ids = _parse_ids(CHAT_ID)
+    failed_chats = []  # Список чатов, которые не удалось отправить
+    
     async with httpx.AsyncClient(timeout=20) as client:
         for chunk in chunks:
             for cid in ids:
+                if cid in failed_chats:  # Пропускаем чаты, которые уже не работают
+                    continue
                 try:
-                    await _send(client, cid, chunk)
+                    success = await _send(client, cid, chunk)
+                    if not success:
+                        failed_chats.append(cid)
                     await asyncio.sleep(0.3)
                 except Exception as e:
-                    log.error(f"Не удалось отправить сообщение в Telegram: {e}")
+                    log.error(f"Не удалось отправить сообщение в Telegram (чат {cid}): {e}")
 
 async def notify_dev(text: str) -> None:
     cid = DEV_CHAT_ID or (_parse_ids(CHAT_ID)[0] if CHAT_ID else "")

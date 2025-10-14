@@ -211,14 +211,14 @@ async def run_update() -> dict:
             if src_idx > 0:
                 # Увеличенные задержки для WhatsApp (более строгие лимиты)
                 if "whatsapp.com" in url:
-                    delay = 30.0 + random.random() * 15.0  # 30-45 сек для WhatsApp
+                    delay = 45.0 + random.random() * 15.0  # 45-60 сек для WhatsApp
                     log.info(f"💬 ⏳ WhatsApp: ожидание {delay:.1f} сек (увеличенная пауза)...")
                 else:
-                    # Обычные задержки для остальных сайтов
-                    if random.random() < 0.6:
-                        delay = 10.0 + random.random() * 5.0  # 10-15 сек
+                    # Увеличенные задержки для остальных сайтов (избегаем "going too fast")
+                    if random.random() < 0.5:
+                        delay = 20.0 + random.random() * 10.0  # 20-30 сек
                     else:
-                        delay = 15.0 + random.random() * 10.0  # 15-25 сек
+                        delay = 30.0 + random.random() * 10.0  # 30-40 сек
                     log.info(f"⏳ Ожидание {delay:.1f} сек перед следующим запросом...")
                 await asyncio.sleep(delay)
 
@@ -226,14 +226,38 @@ async def run_update() -> dict:
             headers = _get_random_headers(url)
             
             try:
-                # Retry логика с разными заголовками
+                # Retry логика с разными заголовками и обработкой 502
                 err = None
                 for attempt in range(FETCH_RETRIES):
                     try:
                         r = await client.get(url, headers=headers)
                         r.raise_for_status()
                         html = r.text
+                        
+                        # Проверка на блокировку Facebook (временная блокировка)
+                        if "You're Temporarily Blocked" in html or "going too fast" in html:
+                            raise httpx.HTTPStatusError(
+                                "Temporary block detected",
+                                request=r.request,
+                                response=r
+                            )
+                        
                         break  # Успешно!
+                    except httpx.HTTPStatusError as e:
+                        # Обработка 502, 403 и временных блокировок
+                        if e.response.status_code in (502, 503, 429, 403) or "Temporary block" in str(e):
+                            err = e
+                            if attempt < FETCH_RETRIES - 1:
+                                # Экспоненциальная задержка при 502 и блокировках
+                                backoff = FETCH_RETRY_BACKOFF * (3 ** attempt) + random.random() * 5
+                                log.warning(f"⚠️ Ошибка {e.response.status_code if hasattr(e, 'response') else 'block'} при загрузке {url}, попытка {attempt+1}/{FETCH_RETRIES}, ожидание {backoff:.1f} сек...")
+                                await asyncio.sleep(backoff)
+                                # Меняем заголовки для следующей попытки
+                                headers = _get_random_headers(url)
+                            else:
+                                raise
+                        else:
+                            raise
                     except Exception as e:
                         err = e
                         if attempt < FETCH_RETRIES - 1:
@@ -241,6 +265,8 @@ async def run_update() -> dict:
                             await asyncio.sleep(backoff)
                             # Меняем заголовки для следующей попытки
                             headers = _get_random_headers(url)
+                        else:
+                            raise
                 else:
                     # Все попытки исчерпаны
                     raise err if err else RuntimeError("unknown http error")
