@@ -46,9 +46,9 @@ def _get_proxy_config(session_id: Optional[str] = None) -> Optional[Dict[str, st
         proxy_user = PROXY_USER
         
         # Добавляем привязку к стране и session ID
-        if "-country-" not in proxy_user:
-            # Если нет указания страны - добавляем TARGET_REGION
-            country_code = TARGET_REGION.lower() if TARGET_REGION != "AUTO" else "md"
+        # Привязываем к стране только если TARGET_REGION != AUTO
+        if "-country-" not in proxy_user and TARGET_REGION != "AUTO":
+            country_code = TARGET_REGION.lower()
             proxy_user = f"{proxy_user}-country-{country_code}"
         
         # Добавляем session ID для использования одного IP
@@ -234,11 +234,12 @@ async def run_update() -> dict:
                     delay = 45.0 + random.random() * 15.0  # 45-60 сек для WhatsApp
                     log.info(f"💬 ⏳ WhatsApp: ожидание {delay:.1f} сек (увеличенная пауза)...")
                 else:
-                    # Увеличенные задержки для остальных сайтов (избегаем "going too fast")
-                    if random.random() < 0.5:
-                        delay = 20.0 + random.random() * 10.0  # 20-30 сек
+                    # Увеличенные задержки для остальных сайтов
+                    # Увеличено до 50-70 сек из-за блокировок Facebook
+                    if random.random() < 0.3:
+                        delay = 50.0 + random.random() * 10.0  # 50-60 сек
                     else:
-                        delay = 30.0 + random.random() * 10.0  # 30-40 сек
+                        delay = 60.0 + random.random() * 10.0  # 60-70 сек
                     log.info(f"⏳ Ожидание {delay:.1f} сек перед следующим запросом...")
                 await asyncio.sleep(delay)
 
