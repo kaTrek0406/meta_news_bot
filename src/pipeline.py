@@ -33,66 +33,11 @@ else:
 
 TIMEOUT = httpx.Timeout(30.0, connect=15.0)  # Увеличили timeout
 
-<<<<<<< Updated upstream
-# Настройки прокси из переменных окружения
-PROXY_HOST = os.getenv("PROXY_HOST", "")
-PROXY_USER = os.getenv("PROXY_USER", "")
-PROXY_PASSWORD = os.getenv("PROXY_PASSWORD", "")
-
-def _get_proxy_config(session_id: Optional[str] = None) -> Optional[Dict[str, str]]:
-    """
-    Возвращает настройки прокси для httpx, если они настроены.
-    
-    Параметры:
-    - session_id: ИД сессии для BrightData (использует один IP для всех запросов)
-    """
-    if PROXY_HOST and PROXY_USER and PROXY_PASSWORD:
-        proxy_user = PROXY_USER
-        
-        # Добавляем привязку к стране и session ID
-        # Привязываем к стране только если TARGET_REGION != AUTO
-        if "-country-" not in proxy_user and TARGET_REGION != "AUTO":
-            country_code = TARGET_REGION.lower()
-            proxy_user = f"{proxy_user}-country-{country_code}"
-        
-        # Добавляем session ID для использования одного IP
-        if session_id and "-session-" not in proxy_user:
-            proxy_user = f"{proxy_user}-session-{session_id}"
-        
-        proxy_url = f"http://{proxy_user}:{PROXY_PASSWORD}@{PROXY_HOST}"
-        log.info(f"🔐 Используется прокси: {PROXY_HOST} (страна: {TARGET_REGION}, session: {session_id or 'нет'})")
-        return {"http://": proxy_url, "https://": proxy_url}
-    else:
-        log.warning("⚠️ Прокси не настроен, запросы идут напрямую")
-        return None
-
-# Настройка региона (можно переопределить через переменную окружения)
-TARGET_REGION = os.getenv("TARGET_REGION", "MD")  # MD=Moldova (EU), US=United States
-
-# Языковые настройки по регионам
-REGION_SETTINGS = {
-    "MD": {
-        "lang": "en-GB,en;q=0.9,ro;q=0.8,ru;q=0.7",  # English (UK/EU), Romanian, Russian
-        "country": "MD",
-        "timezone": "Europe/Chisinau"
-    },
-    "US": {
-        "lang": "en-US,en;q=0.9",
-        "country": "US",
-        "timezone": "America/New_York"
-    },
-    "EU": {
-        "lang": "en-GB,en;q=0.9",
-        "country": "GB",  # UK as EU representative
-        "timezone": "Europe/London"
-    }
-=======
 # Языковые настройки по регионам (для Accept-Language)
 _DEFAULT_LANG_BY_REGION = {
     "EU": "en-GB,en;q=0.9",
     "MD": "en-GB,en;q=0.9,ro;q=0.8,ru;q=0.7",
     "GLOBAL": "en-US,en;q=0.9",
->>>>>>> Stashed changes
 }
 
 def _get_proxy_for_region(region: str, proxy_country: Optional[str] = None, session_id: Optional[str] = None) -> Optional[Dict[str, str]]:
