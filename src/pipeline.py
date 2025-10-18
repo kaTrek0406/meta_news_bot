@@ -272,8 +272,10 @@ async def run_update() -> dict:
                         r = await client.get(url, headers=headers)
                         
                         # Особая обработка для статуса 422 - если есть HTML, игнорируем ошибку
-                        if r.status_code == 422 and r.text and len(r.text) > 1000:
-                            log.info(f"🔄 Статус 422 но получен HTML ({len(r.text)} симв.), продолжаем: {url}")
+                        if r.status_code == 422 and r.text and len(r.text.strip()) > 500:
+                            log.info(f"✅ Статус 422 но получен HTML ({len(r.text)} симв.), продолжаем")
+                            html = r.text
+                        elif r.status_code in [200, 201, 202]:
                             html = r.text
                         else:
                             r.raise_for_status()
