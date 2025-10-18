@@ -217,6 +217,10 @@ def run_bot():
     _load_env()
     _setup_logging()
     _tune_lib_loggers()
+    
+    # Проверяем и логируем конфигурацию прокси
+    from ..config import validate_proxy_config
+    validate_proxy_config()
 
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
