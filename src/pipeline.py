@@ -49,7 +49,10 @@ def _get_proxy_for_region(region: str, proxy_country: Optional[str] = None, sess
     - proxy_country: переопределение страны для прокси (из config.json источника)
     - session_id: для sticky-сессий (Froxy поддерживает session=<rand>)
     """
+    log.debug(f"🔍 DEBUG: _get_proxy_for_region({region}, USE_PROXY={USE_PROXY}, PROXY_URL={bool(PROXY_URL)}, PROXY_URL_EU={bool(PROXY_URL_EU)})")
+    
     if not USE_PROXY:
+        log.debug(f"🚫 USE_PROXY=False, возвращаем None")
         return None
     
     # Определяем какой прокси URL использовать
@@ -252,6 +255,12 @@ async def run_update() -> dict:
         
         # Получаем прокси для региона источника
         proxies = _get_proxy_for_region(region, proxy_country, session_id)
+        
+        # Отладочное логирование прокси
+        if proxies:
+            log.info(f"🔐 Используется прокси для {region}: {list(proxies.keys())[0] if proxies else 'None'}")
+        else:
+            log.warning(f"⚠️ Прокси НЕ ИСПОЛЬЗУЕТСЯ для {region} (proxies=None)")
         
         # Accept-Language по региону или кастомный
         accept_lang = custom_lang or _DEFAULT_LANG_BY_REGION.get(region, "en-US,en;q=0.9")

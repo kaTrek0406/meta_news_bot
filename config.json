@@ -50,6 +50,7 @@
     { "url": "https://transparency.meta.com/policies/ad-standards/", "tag": "news_policy", "region": "GLOBAL" },
     { "url": "https://transparency.meta.com/policies/ad-standards/restricted-goods-services/drugs-pharmaceuticals", "tag": "news_policy", "region": "GLOBAL" },
     { "url": "https://transparency.meta.com/policies/ad-standards/siep-advertising/siep", "tag": "news_policy", "region": "EU" },
+    { "url": "https://transparency.meta.com/policies/ad-standards/", "tag": "news_policy", "region": "MD", "proxy_country": "md" },
     { "url": "https://www.facebook.com/business/help/298000447747885", "tag": "news_policy", "region": "GLOBAL" },
     { "url": "https://www.facebook.com/business/help/2895682587380674", "tag": "news_policy", "region": "GLOBAL" },
     { "url": "https://www.facebook.com/business/help/975570072950669", "tag": "news_policy", "region": "GLOBAL" },
@@ -58,12 +59,14 @@
     { "url": "https://www.facebook.com/business/help/467497707961623", "tag": "news_policy", "region": "GLOBAL" },
 
     { "url": "https://about.fb.com/news/2025/07/ending-political-electoral-and-social-issue-advertising-in-the-eu/", "tag": "news_product", "region": "EU" },
+    { "url": "https://www.facebook.com/business/help/298000447747885", "tag": "news_policy", "region": "MD", "proxy_country": "md" },
     { "url": "https://about.fb.com/news/2025/02/gen-ai-transparency-metas-ads-products/", "tag": "news_product", "region": "GLOBAL" },
     { "url": "https://www.facebook.com/business/news/introducing-ads-in-threads", "tag": "news_product", "region": "GLOBAL" },
     { "url": "https://about.fb.com/news/2025/07/centralized-campaigns-ai-support-businesses-whatsapp/", "tag": "news_product", "region": "GLOBAL" },
     { "url": "https://www.facebook.com/business/news/facebook/tags/announcements", "tag": "news_product", "region": "GLOBAL" },
 
     { "url": "https://developers.facebook.com/docs/marketing-api/marketing-api-changelog/", "tag": "news_dev", "region": "GLOBAL" },
+    { "url": "https://developers.facebook.com/docs/marketing-api/marketing-api-changelog/", "tag": "news_dev", "region": "MD", "proxy_country": "md" },
     { "url": "https://developers.facebook.com/docs/graph-api/changelog/", "tag": "news_dev", "region": "GLOBAL" },
     { "url": "https://developers.facebook.com/docs/marketing-api/out-of-cycle-changes/occ-2025/", "tag": "news_dev", "region": "GLOBAL" },
     { "url": "https://www.facebook.com/ads/library/api/", "tag": "news_dev", "region": "GLOBAL" },

@@ -315,11 +315,18 @@ def _get_recommendations(category: str, priority: str, added: List[str], removed
 def group_changes_by_region(details: List[Dict]) -> Dict[str, List[Dict]]:
     """Группирует изменения по регионам для отправки в одном сообщении"""
     grouped = {}
+    
     for detail in details:
         region = detail.get("region", "GLOBAL")
+        
+        # Если есть региональные различия - добавляем в соответствующий регион
         if region not in grouped:
             grouped[region] = []
         grouped[region].append(detail)
+    
+    # Логируем группировку для отладки
+    log.info(f"📊 Группировка по регионам: {', '.join([f'{k}({len(v)})' for k, v in grouped.items()])}")
+    
     return grouped
 
 def format_region_summary(region: str, details: List[Dict]) -> List[str]:
