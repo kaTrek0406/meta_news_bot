@@ -91,6 +91,19 @@ USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15",
 ]
 
+def _fix_facebook_url(url: str) -> str:
+    """
+    Добавляет параметр _fb_noscript=1 к Facebook/Meta URL для обхода JavaScript редиректов
+    """
+    if any(domain in url for domain in ["facebook.com", "transparency.meta.com", "about.fb.com", "developers.facebook.com"]):
+        # Проверяем если параметр уже есть
+        if "_fb_noscript=1" not in url:
+            # Добавляем параметр
+            separator = "&" if "?" in url else "?"
+            url = f"{url}{separator}_fb_noscript=1"
+            log.debug(f"📋 Добавлен _fb_noscript к: {url}")
+    return url
+
 def _get_random_headers(url: str = "", accept_lang: Optional[str] = None):
     """Генерирует случайные заголовки для каждого запроса"""
     ua = random.choice(USER_AGENTS)
@@ -224,6 +237,9 @@ async def run_update() -> dict:
         if not tag or not url:
             continue
         
+        # Обрабатываем Facebook URL для обхода JavaScript редиректов
+        url = _fix_facebook_url(url)
+        
         # Задержки между запросами
         if src_idx > 0:
             if "whatsapp.com" in url:
@@ -260,6 +276,27 @@ async def run_update() -> dict:
                         # Проверка на блокировку
                         if "You're Temporarily Blocked" in html or "going too fast" in html:
                             raise httpx.HTTPStatusError("Temporary block", request=r.request, response=r)
+                        
+                        # Проверка на JavaScript редирект
+                        if 'http-equiv="refresh"' in html and '_fb_noscript=1' in html:
+                            # Получили страницу с редиректом, но уже с _fb_noscript - это ошибка
+                            raise httpx.HTTPStatusError("JS redirect page despite _fb_noscript=1", request=r.request, response=r)
+                        
+                        elif 'http-equiv="refresh"' in html and 'URL=' in html:
+                            # Обнаружен JavaScript редирект, попробуем с _fb_noscript=1
+                            import re
+                            redirect_match = re.search(r'URL=([^"]+)', html)
+                            if redirect_match:
+                                redirect_url = redirect_match.group(1)
+                                if not redirect_url.startswith('http'):
+                                    # Относительный URL
+                                    from urllib.parse import urljoin
+                                    redirect_url = urljoin(url, redirect_url)
+                                
+                                log.info(f"🔄 JS редирект обнаружен, переходим на: {redirect_url}")
+                                r = await client.get(redirect_url, headers=headers)
+                                r.raise_for_status()
+                                html = r.text
                         
                         break  # Успешно!
                     except httpx.HTTPStatusError as e:
