@@ -114,6 +114,7 @@ def _get_random_headers(url: str = "", accept_lang: Optional[str] = None):
         "User-Agent": ua,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Accept-Language": accept_lang or "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
         "Cache-Control": "max-age=0",
         "DNT": "1",
         "Connection": "keep-alive",
@@ -127,8 +128,18 @@ def _get_random_headers(url: str = "", accept_lang: Optional[str] = None):
         "Sec-CH-UA-Platform": '"Windows"',
     }
     
+    # Специальные заголовки для Meta/Facebook сайтов
+    if any(domain in url for domain in ["facebook.com", "transparency.meta.com", "about.fb.com", "developers.facebook.com"]):
+        headers["Referer"] = "https://www.google.com/"
+        headers["Sec-Fetch-Site"] = "cross-site"
+        headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        # Убираем некоторые заголовки которые могут вызывать проблемы
+        headers.pop("Sec-CH-UA", None)
+        headers.pop("Sec-CH-UA-Mobile", None)
+        headers.pop("Sec-CH-UA-Platform", None)
+    
     # Дополнительные заголовки для WhatsApp
-    if "whatsapp.com" in url:
+    elif "whatsapp.com" in url:
         headers["Referer"] = "https://www.google.com/"
         headers["Sec-Fetch-Site"] = "cross-site"
     
@@ -280,10 +291,19 @@ async def run_update() -> dict:
                     try:
                         r = await client.get(url, headers=headers)
                         
-                        # Особая обработка для статуса 422 - если есть HTML, игнорируем ошибку
-                        if r.status_code == 422 and r.text and len(r.text.strip()) > 500:
-                            log.info(f"✅ Статус 422 но получен HTML ({len(r.text)} симв.), продолжаем")
-                            html = r.text
+                        # Особая обработка для статуса 422 - Meta сайты часто возвращают 422 с валидным HTML
+                        if r.status_code == 422:
+                            # Для Meta/Facebook сайтов принимаем любой ответ с содержимым
+                            is_meta_site = any(domain in url for domain in ["transparency.meta.com", "facebook.com", "about.fb.com", "developers.facebook.com"])
+                            if is_meta_site and r.text and len(r.text.strip()) > 100:
+                                log.info(f"✅ Meta сайт: Статус 422 но получен HTML ({len(r.text)} симв.), продолжаем")
+                                html = r.text
+                            elif r.text and len(r.text.strip()) > 500:
+                                log.info(f"✅ Статус 422 но получен валидный HTML ({len(r.text)} симв.), продолжаем")
+                                html = r.text
+                            else:
+                                log.warning(f"⚠️ Статус 422 с коротким ответом ({len(r.text) if r.text else 0} симв.), попробуем еще раз")
+                                r.raise_for_status()
                         elif r.status_code in [200, 201, 202]:
                             html = r.text
                         else:
