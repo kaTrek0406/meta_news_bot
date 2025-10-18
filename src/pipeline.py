@@ -270,8 +270,14 @@ async def run_update() -> dict:
                 for attempt in range(FETCH_RETRIES):
                     try:
                         r = await client.get(url, headers=headers)
-                        r.raise_for_status()
-                        html = r.text
+                        
+                        # Особая обработка для статуса 422 - если есть HTML, игнорируем ошибку
+                        if r.status_code == 422 and r.text and len(r.text) > 1000:
+                            log.info(f"🔄 Статус 422 но получен HTML ({len(r.text)} симв.), продолжаем: {url}")
+                            html = r.text
+                        else:
+                            r.raise_for_status()
+                            html = r.text
                         
                         # Проверка на блокировку
                         if "You're Temporarily Blocked" in html or "going too fast" in html:
