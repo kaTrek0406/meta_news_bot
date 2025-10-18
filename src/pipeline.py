@@ -260,7 +260,8 @@ async def run_update() -> dict:
                 delay = 45.0 + random.random() * 15.0
                 log.info(f"💬 ⏳ WhatsApp: ожидание {delay:.1f} сек (увеличенная пауза)...")
             else:
-                delay = (50.0 if random.random() < 0.3 else 60.0) + random.random() * 10.0
+                # Увеличили задержки для снижения нагрузки на Meta серверы
+                delay = (60.0 if random.random() < 0.3 else 80.0) + random.random() * 20.0
                 log.info(f"⏳ Ожидание {delay:.1f} сек перед следующим запросом...")
             await asyncio.sleep(delay)
         
@@ -353,11 +354,14 @@ async def run_update() -> dict:
                             await asyncio.sleep(5)
                             continue
                         
-                        if status in (502, 503, 429, 403, 407):
+                        if status in (500, 502, 503, 429, 403, 407):
                             err = e
                             if attempt < FETCH_RETRIES - 1:
-                                backoff = FETCH_RETRY_BACKOFF * (3 ** attempt) + random.random() * 5
-                                log.warning(f"⚠️ Ошибка {status} при загрузке {url}, попытка {attempt+1}/{FETCH_RETRIES}, ожидание {backoff:.1f} сек...")
+                                backoff = FETCH_RETRY_BACKOFF * (3 ** attempt) + random.random() * 10  # Увеличили случайность для 500 ошибок
+                                if status == 500:
+                                    log.warning(f"⚠️ Сервер Meta недоступен (500), попытка {attempt+1}/{FETCH_RETRIES}, ожидание {backoff:.1f} сек...")
+                                else:
+                                    log.warning(f"⚠️ Ошибка {status} при загрузке {url}, попытка {attempt+1}/{FETCH_RETRIES}, ожидание {backoff:.1f} сек...")
                                 await asyncio.sleep(backoff)
                                 headers = _get_random_headers(url, accept_lang)
                             else:
