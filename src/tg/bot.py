@@ -138,21 +138,35 @@ async def _daily_job(context):
                 await _send_html(app, cid, msg)
             return
 
-        for d in meaningful_details:
-            # Используем умное форматирование
-            parts = format_change_smart(d)
-            for p in parts:
-                out = p
+        # Группируем изменения по регионам для объединенной отправки
+        from ..smart_formatter import group_changes_by_region, format_region_summary
+        grouped_by_region = group_changes_by_region(meaningful_details)
+        
+        # Отправляем сводку по каждому региону в одном сообщении
+        for region in sorted(grouped_by_region.keys()):
+            region_details = grouped_by_region[region]
+            if not region_details:
+                continue
+                
+            # Форматируем сводку для региона
+            summary_parts = format_region_summary(region, region_details)
+            
+            for part in summary_parts:
+                out = part
                 if AUTO_TRANSLATE and _needs_translation(out, MAX_NOTIFY_CHARS):
                     try:
                         out = translate_compact_html(out, target_lang="ru", max_len=MAX_NOTIFY_CHARS)
                     except Exception:
-                        out = p
+                        out = part
                 out = _sanitize_telegram_html(out)
+                
                 for cid in recipients:
                     await _send_html(app, cid, out)
-                    # Маленькая задержка между сообщениями
-                    await asyncio.sleep(0.3)
+                    # Задержка между сообщениями
+                    await asyncio.sleep(0.5)
+            
+            # Задержка между регионами
+            await asyncio.sleep(1.0)
 
     except Exception as e:
         log.error("daily job error: %s", e, exc_info=True)

@@ -1,7 +1,10 @@
 import os
+import logging
 from pathlib import Path
 from typing import Optional, Dict, List
 from dotenv import load_dotenv
+
+log = logging.getLogger(__name__)
 
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 ENV_FILE: Path = PROJECT_ROOT / ".env"
@@ -11,6 +14,14 @@ if ENV_FILE.exists():
 TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
 OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
+
+# Прокси настройки
+PROXY_URL: str = os.getenv("PROXY_URL", "")  # Полный URL прокси
+PROXY_URL_EU: str = os.getenv("PROXY_URL_EU", "")  # Fallback для EU
+USE_PROXY: bool = os.getenv("USE_PROXY", "0") == "1"
+PROXY_PROVIDER: str = os.getenv("PROXY_PROVIDER", "froxy")  # froxy или другой
+PROXY_STICKY: bool = os.getenv("PROXY_STICKY", "0") == "1"  # Sticky sessions
+PROXY_FALLBACK_EU: bool = os.getenv("PROXY_FALLBACK_EU", "1") == "1"  # Fallback MD->EU
 
 # --- каталоги ---
 DATA_DIR: Path = PROJECT_ROOT / "data"
@@ -57,7 +68,33 @@ def selectors_for(url: str) -> List[str]:
 def ensure_telegram_token() -> None:
     if not TELEGRAM_BOT_TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN не задан")
+    if not TELEGRAM_CHAT_ID:
+        raise RuntimeError("TELEGRAM_CHAT_ID не задан (хотя бы один чат требуется)")
+    chat_ids = [c.strip() for c in TELEGRAM_CHAT_ID.split(",") if c.strip()]
+    if not chat_ids:
+        raise RuntimeError("TELEGRAM_CHAT_ID пуст (хотя бы один чат требуется)")
 
 def ensure_openrouter_key() -> None:
     if not OPENROUTER_API_KEY:
         raise RuntimeError("OPENROUTER_API_KEY не задан")
+
+def validate_proxy_config() -> None:
+    """Проверяет корректность настроек прокси"""
+    if USE_PROXY:
+        if not PROXY_URL:
+            raise RuntimeError("USE_PROXY=1 но PROXY_URL не задан")
+        # Базовая валидация URL
+        if not PROXY_URL.startswith(("http://", "https://", "socks5://")):
+            raise RuntimeError(f"PROXY_URL невалиден: {PROXY_URL[:20]}...")
+        log.info(f"🔐 Прокси настроен: провайдер={PROXY_PROVIDER}, sticky={PROXY_STICKY}, fallback_EU={PROXY_FALLBACK_EU}")
+    else:
+        log.warning("⚠️ Прокси не используется (USE_PROXY=0)")
+
+def log_config_summary() -> None:
+    """Логирует конфигурацию без секретов"""
+    log.info(f"📦 Проект: {PROJECT_ROOT}")
+    log.info(f"📊 Источников настроено: {len(SOURCES)}")
+    log.info(f"📝 Кэш: max_items={MAX_ITEMS_TOTAL}, page_size={PAGE_SIZE}")
+    log.info(f"💬 Telegram: {len([c.strip() for c in TELEGRAM_CHAT_ID.split(',') if c.strip()])} чат(ов)")
+    log.info(f"🤖 OpenRouter: {'✓' if OPENROUTER_API_KEY else '✗'}")
+    validate_proxy_config()

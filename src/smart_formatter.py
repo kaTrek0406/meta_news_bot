@@ -11,6 +11,13 @@ from html import escape
 
 log = logging.getLogger(__name__)
 
+# Региональные бейджи (флаги + теги)
+REGION_BADGES = {
+    "EU": "🇪🇺 [EU]",
+    "MD": "🇲🇩 [MD]",
+    "GLOBAL": "🌍 [GLOBAL]",
+}
+
 # Ключевые слова для определения важности изменений
 TARGETING_KEYWORDS = {
     "критично": [
@@ -133,6 +140,7 @@ def _format_api_change(detail: Dict) -> str:
     """Специальное форматирование для API изменений"""
     title = detail.get("title", "")
     url = detail.get("url", "")
+    region = detail.get("region", "GLOBAL")
     
     gd = detail.get("global_diff") or {}
     changed = gd.get("changed") or []
@@ -149,7 +157,8 @@ def _format_api_change(detail: Dict) -> str:
         removed
     )
     
-    output.append(f"{priority_icon} <b>{escape(title)}</b>")
+    region_badge = REGION_BADGES.get(region, "🌍 [GLOBAL]")
+    output.append(f"{priority_icon} <b>{escape(title)}</b> {region_badge}")
     output.append(f"Приоритет: {priority_text}")
     output.append("")
     
@@ -212,6 +221,7 @@ def _format_policy_change(detail: Dict) -> str:
     """Специальное форматирование для изменений политик"""
     title = detail.get("title", "")
     url = detail.get("url", "")
+    region = detail.get("region", "GLOBAL")
     
     gd = detail.get("global_diff") or {}
     changed = gd.get("changed") or []
@@ -226,7 +236,8 @@ def _format_policy_change(detail: Dict) -> str:
         []
     )
     
-    output.append(f"{priority_icon} <b>{escape(title)}</b>")
+    region_badge = REGION_BADGES.get(region, "🌍 [GLOBAL]")
+    output.append(f"{priority_icon} <b>{escape(title)}</b> {region_badge}")
     
     # Для политик важно показать, что именно изменилось в правилах
     has_meaningful_change = False
@@ -300,6 +311,91 @@ def _get_recommendations(category: str, priority: str, added: List[str], removed
     
     return recs[:3]  # Максимум 3 рекомендации
 
+
+def group_changes_by_region(details: List[Dict]) -> Dict[str, List[Dict]]:
+    """Группирует изменения по регионам для отправки в одном сообщении"""
+    grouped = {}
+    for detail in details:
+        region = detail.get("region", "GLOBAL")
+        if region not in grouped:
+            grouped[region] = []
+        grouped[region].append(detail)
+    return grouped
+
+def format_region_summary(region: str, details: List[Dict]) -> List[str]:
+    """Форматирует сводку изменений для региона"""
+    if not details:
+        return []
+    
+    region_badge = REGION_BADGES.get(region, f"🌍 [{region}]")
+    output = []
+    
+    # Заголовок региона
+    if region == "MD":
+        output.append(f"🇲🇩 <b>МОЛДОВА ({region})</b>")
+        output.append(f"📍 Обновления для молдавского региона")
+    elif region == "EU":
+        output.append(f"🇪🇺 <b>ЕВРОПА ({region})</b>")
+        output.append(f"📍 Обновления для европейского региона")
+    else:
+        output.append(f"{region_badge} <b>ГЛОБАЛЬНЫЕ ИЗМЕНЕНИЯ</b>")
+        output.append(f"📍 Обновления для всех регионов")
+    
+    output.append(f"━━━━━━━━━━━━━━━━━━━━━━")
+    output.append("")
+    
+    # Форматируем каждое изменение в регионе
+    for i, detail in enumerate(details, 1):
+        title = detail.get("title", "")
+        url = detail.get("url", "")
+        
+        gd = detail.get("global_diff") or {}
+        changed = gd.get("changed") or []
+        added = gd.get("added") or []
+        removed = gd.get("removed") or []
+        
+        # Оценка приоритета
+        priority_text, priority_icon = _assess_priority(
+            " ".join([p.get("was", "") for p in changed]),
+            " ".join([p.get("now", "") for p in changed]),
+            added,
+            removed
+        )
+        
+        output.append(f"<b>{i}. {escape(title)}</b> {priority_icon}")
+        
+        # Краткое описание изменений
+        changes_count = len(changed) + len(added) + len(removed)
+        if changes_count > 0:
+            change_parts = []
+            if added:
+                change_parts.append(f"+{len(added)}")
+            if removed:
+                change_parts.append(f"-{len(removed)}")
+            if changed:
+                change_parts.append(f"~{len(changed)}")
+            
+            output.append(f"📊 Изменения: {' '.join(change_parts)}")
+        
+        # Ключевые изменения (максимум 2 для краткости)
+        key_changes = []
+        for pair in changed[:2]:  # Только первые 2
+            was = pair.get("was", "")
+            now = pair.get("now", "")
+            extracted = _extract_key_changes(was, now)
+            key_changes.extend(extracted[:1])  # По 1 от каждого
+        
+        if key_changes:
+            for change in key_changes[:2]:
+                output.append(f"• {escape(change[:100])}{'...' if len(change) > 100 else ''}")
+        
+        if url:
+            output.append(f"🔗 <a href='{escape(url)}'>Подробнее</a>")
+        
+        if i < len(details):  # Разделитель между изменениями
+            output.append("")
+    
+    return ["\n".join(output)]
 
 def format_change_smart(detail: Dict) -> List[str]:
     """

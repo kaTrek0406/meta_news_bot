@@ -34,6 +34,12 @@ def load_cache() -> dict:
             # гарантия ключа
             if "items" not in data or not isinstance(data["items"], list):
                 data["items"] = []
+            
+            # ✨ Back-compat: добавляем region=GLOBAL для старых записей
+            for item in data["items"]:
+                if "region" not in item:
+                    item["region"] = "GLOBAL"
+            
             return data
         except Exception:
             pass

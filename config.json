@@ -47,35 +47,35 @@
   },
 
   "sources": [
-    { "url": "https://transparency.meta.com/policies/ad-standards/", "tag": "news_policy" },
-    { "url": "https://transparency.meta.com/policies/ad-standards/restricted-goods-services/drugs-pharmaceuticals", "tag": "news_policy" },
-    { "url": "https://transparency.meta.com/policies/ad-standards/siep-advertising/siep", "tag": "news_policy" },
-    { "url": "https://www.facebook.com/business/help/298000447747885", "tag": "news_policy" },
-    { "url": "https://www.facebook.com/business/help/2895682587380674", "tag": "news_policy" },
-    { "url": "https://www.facebook.com/business/help/975570072950669", "tag": "news_policy" },
-    { "url": "https://www.facebook.com/business/help/229435355723442", "tag": "news_policy" },
-    { "url": "https://help.instagram.com/1079023176238541", "tag": "news_policy" },
-    { "url": "https://www.facebook.com/business/help/467497707961623", "tag": "news_policy" },
+    { "url": "https://transparency.meta.com/policies/ad-standards/", "tag": "news_policy", "region": "GLOBAL" },
+    { "url": "https://transparency.meta.com/policies/ad-standards/restricted-goods-services/drugs-pharmaceuticals", "tag": "news_policy", "region": "GLOBAL" },
+    { "url": "https://transparency.meta.com/policies/ad-standards/siep-advertising/siep", "tag": "news_policy", "region": "EU" },
+    { "url": "https://www.facebook.com/business/help/298000447747885", "tag": "news_policy", "region": "GLOBAL" },
+    { "url": "https://www.facebook.com/business/help/2895682587380674", "tag": "news_policy", "region": "GLOBAL" },
+    { "url": "https://www.facebook.com/business/help/975570072950669", "tag": "news_policy", "region": "GLOBAL" },
+    { "url": "https://www.facebook.com/business/help/229435355723442", "tag": "news_policy", "region": "GLOBAL" },
+    { "url": "https://help.instagram.com/1079023176238541", "tag": "news_policy", "region": "GLOBAL" },
+    { "url": "https://www.facebook.com/business/help/467497707961623", "tag": "news_policy", "region": "GLOBAL" },
 
-    { "url": "https://about.fb.com/news/2025/07/ending-political-electoral-and-social-issue-advertising-in-the-eu/", "tag": "news_product" },
-    { "url": "https://about.fb.com/news/2025/02/gen-ai-transparency-metas-ads-products/", "tag": "news_product" },
-    { "url": "https://www.facebook.com/business/news/introducing-ads-in-threads", "tag": "news_product" },
-    { "url": "https://about.fb.com/news/2025/07/centralized-campaigns-ai-support-businesses-whatsapp/", "tag": "news_product" },
-    { "url": "https://www.facebook.com/business/news/facebook/tags/announcements", "tag": "news_product" },
+    { "url": "https://about.fb.com/news/2025/07/ending-political-electoral-and-social-issue-advertising-in-the-eu/", "tag": "news_product", "region": "EU" },
+    { "url": "https://about.fb.com/news/2025/02/gen-ai-transparency-metas-ads-products/", "tag": "news_product", "region": "GLOBAL" },
+    { "url": "https://www.facebook.com/business/news/introducing-ads-in-threads", "tag": "news_product", "region": "GLOBAL" },
+    { "url": "https://about.fb.com/news/2025/07/centralized-campaigns-ai-support-businesses-whatsapp/", "tag": "news_product", "region": "GLOBAL" },
+    { "url": "https://www.facebook.com/business/news/facebook/tags/announcements", "tag": "news_product", "region": "GLOBAL" },
 
-    { "url": "https://developers.facebook.com/docs/marketing-api/marketing-api-changelog/", "tag": "news_dev" },
-    { "url": "https://developers.facebook.com/docs/graph-api/changelog/", "tag": "news_dev" },
-    { "url": "https://developers.facebook.com/docs/marketing-api/out-of-cycle-changes/occ-2025/", "tag": "news_dev" },
-    { "url": "https://www.facebook.com/ads/library/api/", "tag": "news_dev" },
-    { "url": "https://transparency.meta.com/researchtools/meta-content-library", "tag": "news_dev" },
+    { "url": "https://developers.facebook.com/docs/marketing-api/marketing-api-changelog/", "tag": "news_dev", "region": "GLOBAL" },
+    { "url": "https://developers.facebook.com/docs/graph-api/changelog/", "tag": "news_dev", "region": "GLOBAL" },
+    { "url": "https://developers.facebook.com/docs/marketing-api/out-of-cycle-changes/occ-2025/", "tag": "news_dev", "region": "GLOBAL" },
+    { "url": "https://www.facebook.com/ads/library/api/", "tag": "news_dev", "region": "GLOBAL" },
+    { "url": "https://transparency.meta.com/researchtools/meta-content-library", "tag": "news_dev", "region": "GLOBAL" },
 
-    { "url": "https://metastatus.com/", "tag": "news_status" },
-    { "url": "https://www.facebook.com/business/help/1171568854968373", "tag": "news_status" },
+    { "url": "https://metastatus.com/", "tag": "news_status", "region": "GLOBAL" },
+    { "url": "https://www.facebook.com/business/help/1171568854968373", "tag": "news_status", "region": "GLOBAL" },
 
-    { "url": "https://eur-lex.europa.eu/EN/legal-content/summary/transparency-and-targeting-of-political-advertising.html", "tag": "news_regulation" },
+    { "url": "https://eur-lex.europa.eu/EN/legal-content/summary/transparency-and-targeting-of-political-advertising.html", "tag": "news_regulation", "region": "EU", "lang": "en-GB", "proxy_country": "de" },
 
-    { "url": "https://business.whatsapp.com/policy", "tag": "news_policy" },
-    { "url": "https://developers.facebook.com/docs/whatsapp/overview/policy-enforcement/", "tag": "news_dev" },
-    { "url": "https://business.whatsapp.com/blog/conversations-2025", "tag": "news_product" }
+    { "url": "https://business.whatsapp.com/policy", "tag": "news_policy", "region": "GLOBAL" },
+    { "url": "https://developers.facebook.com/docs/whatsapp/overview/policy-enforcement/", "tag": "news_dev", "region": "GLOBAL" },
+    { "url": "https://business.whatsapp.com/blog/conversations-2025", "tag": "news_product", "region": "GLOBAL" }
   ]
 }

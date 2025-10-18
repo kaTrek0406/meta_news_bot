@@ -13,7 +13,10 @@ from difflib import SequenceMatcher
 import re
 
 from .storage import load_cache, save_cache, compute_hash, get_cache_stats
-from .config import PROJECT_ROOT, SOURCES
+from .config import (
+    PROJECT_ROOT, SOURCES, USE_PROXY, PROXY_URL, PROXY_URL_EU,
+    PROXY_PROVIDER, PROXY_STICKY, PROXY_FALLBACK_EU
+)
 from .html_clean import clean_html
 from .summarize import summarize_rules, normalize_plain, extract_sections
 
@@ -30,6 +33,7 @@ else:
 
 TIMEOUT = httpx.Timeout(30.0, connect=15.0)  # Увеличили timeout
 
+<<<<<<< Updated upstream
 # Настройки прокси из переменных окружения
 PROXY_HOST = os.getenv("PROXY_HOST", "")
 PROXY_USER = os.getenv("PROXY_USER", "")
@@ -82,9 +86,56 @@ REGION_SETTINGS = {
         "country": "GB",  # UK as EU representative
         "timezone": "Europe/London"
     }
+=======
+# Языковые настройки по регионам (для Accept-Language)
+_DEFAULT_LANG_BY_REGION = {
+    "EU": "en-GB,en;q=0.9",
+    "MD": "en-GB,en;q=0.9,ro;q=0.8,ru;q=0.7",
+    "GLOBAL": "en-US,en;q=0.9",
+>>>>>>> Stashed changes
 }
 
-region_config = REGION_SETTINGS.get(TARGET_REGION, REGION_SETTINGS["MD"])
+def _get_proxy_for_region(region: str, proxy_country: Optional[str] = None, session_id: Optional[str] = None) -> Optional[Dict[str, str]]:
+    """
+    Возвращает настройки прокси для httpx в зависимости от региона источника.
+    
+    Параметры:
+    - region: EU, MD или GLOBAL
+    - proxy_country: переопределение страны для прокси (из config.json источника)
+    - session_id: для sticky-сессий (Froxy поддерживает session=<rand>)
+    """
+    if not USE_PROXY:
+        return None
+    
+    # Определяем какой прокси URL использовать
+    if region == "MD" and PROXY_URL:
+        base_url = PROXY_URL
+    elif region == "EU" and PROXY_URL_EU:
+        base_url = PROXY_URL_EU
+    elif PROXY_URL:
+        base_url = PROXY_URL
+    else:
+        return None
+    
+    # Для Froxy формат: http://USER:PASS@proxy.froxy.com:9000
+    # с параметрами в user: wifi;md;; или session=<rand>
+    if PROXY_PROVIDER == "froxy":
+        # Froxy: добавляем session в пароль (через wifi;md;;:)
+        # Формат wifi;md;; означает: wifi (тип), md (страна), пустые параметры
+        if PROXY_STICKY and session_id:
+            # Добавляем session в пароль
+            # Для Froxy добавляем session=<rand> в пароль
+            modified_url = base_url.replace("@proxy.froxy.com", f":session={session_id}@proxy.froxy.com")
+            log.debug(f"🔐 Froxy sticky session: region={region}, session={session_id}")
+            return {"http://": modified_url, "https://": modified_url}
+        else:
+            log.debug(f"🔐 Froxy прокси: region={region}")
+            return {"http://": base_url, "https://": base_url}
+    else:
+        # Другие прокси-провайдеры
+        log.debug(f"🔐 Прокси: region={region}, provider={PROXY_PROVIDER}")
+        return {"http://": base_url, "https://": base_url}
+
 
 # Ротация User-Agent для более реалистичного поведения
 USER_AGENTS = [
@@ -95,13 +146,13 @@ USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15",
 ]
 
-def _get_random_headers(url: str = ""):
+def _get_random_headers(url: str = "", accept_lang: Optional[str] = None):
     """Генерирует случайные заголовки для каждого запроса"""
     ua = random.choice(USER_AGENTS)
     headers = {
         "User-Agent": ua,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": region_config["lang"],
+        "Accept-Language": accept_lang or "en-US,en;q=0.9",
         "Cache-Control": "max-age=0",
         "DNT": "1",
         "Connection": "keep-alive",
@@ -119,7 +170,6 @@ def _get_random_headers(url: str = ""):
     if "whatsapp.com" in url:
         headers["Referer"] = "https://www.google.com/"
         headers["Sec-Fetch-Site"] = "cross-site"
-        # Эмулируем переход с Google
     
     return headers
 
@@ -207,47 +257,54 @@ async def run_update() -> dict:
 
     cache_data = load_cache() or {}
     cache: List[Dict[str, Any]] = cache_data.get("items", [])
-    idx: Dict[Tuple[str, str], int] = {(it.get("tag"), it.get("url")): i for i, it in enumerate(cache) if isinstance(it, dict)}
+    # Ключ теперь (tag, url, region)
+    idx: Dict[Tuple[str, str, str], int] = {
+        (it.get("tag"), it.get("url"), it.get("region", "GLOBAL")): i 
+        for i, it in enumerate(cache) if isinstance(it, dict)
+    }
 
     changed_pages = 0
     changed_sections_total = 0
 
-    # Генерируем session ID для использования одного IP для всех запросов
-    session_id = f"session_{int(time.time())}"
+    # Генерируем session ID для sticky-сессий
+    session_id = f"rand{random.randint(10000, 99999)}" if PROXY_STICKY else None
     
-    # Получаем настройки прокси с session ID
-    proxies = _get_proxy_config(session_id)
-    
-    # Отключаем проверку SSL если используется прокси (BrightData использует MITM)
-    verify_ssl = proxies is None
-    
-    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True, proxies=proxies, verify=verify_ssl) as client:
-        for src_idx, src in enumerate(SOURCES):
-            tag, url, title_hint = src.get("tag"), src.get("url"), src.get("title")
-            if not tag or not url:
-                continue
-
-            # Увеличенные задержки для избежания блокировок "going too fast"
-            if src_idx > 0:
-                # Увеличенные задержки для WhatsApp (более строгие лимиты)
-                if "whatsapp.com" in url:
-                    delay = 45.0 + random.random() * 15.0  # 45-60 сек для WhatsApp
-                    log.info(f"💬 ⏳ WhatsApp: ожидание {delay:.1f} сек (увеличенная пауза)...")
-                else:
-                    # Увеличенные задержки для остальных сайтов
-                    # Увеличено до 50-70 сек из-за блокировок Facebook
-                    if random.random() < 0.3:
-                        delay = 50.0 + random.random() * 10.0  # 50-60 сек
-                    else:
-                        delay = 60.0 + random.random() * 10.0  # 60-70 сек
-                    log.info(f"⏳ Ожидание {delay:.1f} сек перед следующим запросом...")
-                await asyncio.sleep(delay)
-
-            # Используем случайные заголовки для каждого запроса (с учетом URL)
-            headers = _get_random_headers(url)
-            
+    # Для каждого источника будем создавать свой клиент с подходящим прокси
+    for src_idx, src in enumerate(SOURCES):
+        tag, url, title_hint = src.get("tag"), src.get("url"), src.get("title")
+        region = src.get("region", "GLOBAL")
+        custom_lang = src.get("lang")  # опциональный параметр
+        proxy_country = src.get("proxy_country")  # опциональный параметр
+        
+        if not tag or not url:
+            continue
+        
+        # Задержки между запросами
+        if src_idx > 0:
+            if "whatsapp.com" in url:
+                delay = 45.0 + random.random() * 15.0
+                log.info(f"💬 ⏳ WhatsApp: ожидание {delay:.1f} сек (увеличенная пауза)...")
+            else:
+                delay = (50.0 if random.random() < 0.3 else 60.0) + random.random() * 10.0
+                log.info(f"⏳ Ожидание {delay:.1f} сек перед следующим запросом...")
+            await asyncio.sleep(delay)
+        
+        # Получаем прокси для региона источника
+        proxies = _get_proxy_for_region(region, proxy_country, session_id)
+        
+        # Accept-Language по региону или кастомный
+        accept_lang = custom_lang or _DEFAULT_LANG_BY_REGION.get(region, "en-US,en;q=0.9")
+        headers = _get_random_headers(url, accept_lang)
+        
+        # SSL проверка: отключаем при прокси
+        verify_ssl = proxies is None
+        
+        html = None
+        used_fallback = False
+        
+        async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True, proxies=proxies, verify=verify_ssl) as client:
             try:
-                # Retry логика с разными заголовками и обработкой 502
+                # Retry логика
                 err = None
                 for attempt in range(FETCH_RETRIES):
                     try:
@@ -255,38 +312,33 @@ async def run_update() -> dict:
                         r.raise_for_status()
                         html = r.text
                         
-                        # Проверка на блокировку Facebook (временная блокировка)
+                        # Проверка на блокировку
                         if "You're Temporarily Blocked" in html or "going too fast" in html:
-                            # Создаем псевдо-response для обработки
-                            class TempBlockResponse:
-                                status_code = 429
-                                request = r.request
-                            
-                            class TempBlockError(httpx.HTTPStatusError):
-                                def __init__(self):
-                                    self.response = TempBlockResponse()
-                                    super().__init__("Temporary block detected", request=r.request, response=self.response)
-                            
-                            raise TempBlockError()
+                            raise httpx.HTTPStatusError("Temporary block", request=r.request, response=r)
                         
                         break  # Успешно!
                     except httpx.HTTPStatusError as e:
-                        # Обработка 502, 403 и временных блокировок
                         status = getattr(e.response, 'status_code', 0) if hasattr(e, 'response') else 0
-                        if status in (502, 503, 429, 403) or "Temporary block" in str(e):
+                        
+                        # 407/403 для MD -> пробуем fallback на EU
+                        if status in (407, 403) and region == "MD" and PROXY_FALLBACK_EU and PROXY_URL_EU and attempt == 0:
+                            log.warning(f"⚠️ Ошибка {status} для MD прокси, переключаемся на EU fallback...")
+                            # Переключаемся на EU прокси
+                            proxies = _get_proxy_for_region("EU", proxy_country, session_id)
+                            used_fallback = True
+                            await asyncio.sleep(5)
+                            continue
+                        
+                        if status in (502, 503, 429, 403, 407):
                             err = e
                             if attempt < FETCH_RETRIES - 1:
-                                # Экспоненциальная задержка при 502 и блокировках
                                 backoff = FETCH_RETRY_BACKOFF * (3 ** attempt) + random.random() * 5
                                 log.warning(f"⚠️ Ошибка {status} при загрузке {url}, попытка {attempt+1}/{FETCH_RETRIES}, ожидание {backoff:.1f} сек...")
                                 await asyncio.sleep(backoff)
-                                # Меняем заголовки для следующей попытки
-                                headers = _get_random_headers(url)
+                                headers = _get_random_headers(url, accept_lang)
                             else:
-                                # Если это блокировка Facebook - просто пропускаем
                                 if status == 429:
                                     log.error(f"❌ Facebook заблокировал запросы: {url}. Пропускаем.")
-                                    # Пропускаем этот URL, не падаем
                                     err = None
                                     break
                                 raise
@@ -297,26 +349,25 @@ async def run_update() -> dict:
                         if attempt < FETCH_RETRIES - 1:
                             backoff = FETCH_RETRY_BACKOFF * (2 ** attempt)
                             await asyncio.sleep(backoff)
-                            # Меняем заголовки для следующей попытки
-                            headers = _get_random_headers(url)
+                            headers = _get_random_headers(url, accept_lang)
                         else:
                             raise
                 else:
-                    # Все попытки исчерпаны
                     if err:
                         raise err
-                    # Если err = None, значит мы пропустили URL из-за блокировки
             except Exception as e:
                 log.error("Ошибка при загрузке %s: %s", url, e)
-                errors.append({"tag": tag, "url": url, "error": str(e)})
+                errors.append({"tag": tag, "url": url, "region": region, "error": str(e)})
                 continue
-            
-            # Если err = None и мы пропустили URL - переходим к следующему
-            if err is None or not locals().get('html'):
-                errors.append({"tag": tag, "url": url, "error": "Facebook temporary block"})
-                continue
-
-            title_auto, full_plain, cleaned_html = clean_html(html, url)
+        
+        if not html:
+            errors.append({"tag": tag, "url": url, "region": region, "error": "No HTML received"})
+            continue
+        
+        if used_fallback:
+            log.info(f"✅ Успешно получено через EU fallback: {url}")
+        
+        title_auto, full_plain, cleaned_html = clean_html(html, url)
 
             plain_norm = normalize_plain(full_plain or "")
             page_sig = compute_hash(plain_norm)
@@ -324,9 +375,9 @@ async def run_update() -> dict:
             sections_new = extract_sections(cleaned_html or html)
             sec_map_new = {s["id"]: s for s in sections_new if s.get("id")}
 
-            key = (tag, url)
-            existing_i = idx.get(key)
-            existing = cache[existing_i] if existing_i is not None else None
+        key = (tag, url, region)
+        existing_i = idx.get(key)
+        existing = cache[existing_i] if existing_i is not None else None
 
             added_ids, removed_ids, modified_ids = [], [], []
 
@@ -347,24 +398,24 @@ async def run_update() -> dict:
                 (existing is None) or
                 (existing and existing.get("hash") != page_sig)
             )
-            if not changed_here:
-                continue
-
-            if page_sig in trans_cache:
-                summary = trans_cache[page_sig]
-            else:
-                summary = await _summarize_async(full_plain or "")
-                trans_cache[page_sig] = summary
-
-            title = (title_hint or title_auto or "").strip() or url
-
-            old_full = (existing or {}).get("full_text") or ""
-            new_full = full_plain or ""
-            old_sents = _split_sentences(old_full)
-            new_sents = _split_sentences(new_full)
-            pairs_global, old_only_global, new_only_global = _pair_changed_sentences(
-                old_sents, new_sents, threshold=0.0
-            )
+        if not changed_here:
+            continue
+        
+        if page_sig in trans_cache:
+            summary = trans_cache[page_sig]
+        else:
+            summary = await _summarize_async(full_plain or "")
+            trans_cache[page_sig] = summary
+        
+        title = (title_hint or title_auto or "").strip() or url
+        
+        old_full = (existing or {}).get("full_text") or ""
+        new_full = full_plain or ""
+        old_sents = _split_sentences(old_full)
+        new_sents = _split_sentences(new_full)
+        pairs_global, old_only_global, new_only_global = _pair_changed_sentences(
+            old_sents, new_sents, threshold=0.0
+        )
 
             global_diff = {
                 "changed": [{"was": _clip_line(w), "now": _clip_line(n)} for (w, n) in pairs_global],
@@ -410,48 +461,51 @@ async def run_update() -> dict:
                         block["added_inline"] = [_clip_line(s) for s in new_only_s]
                     section_diffs.append(block)
 
-            item = {
-                "tag": tag,
-                "url": url,
-                "title": title,
-                "summary": (summary or "").strip(),
-                "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "hash": page_sig,
-                "sections": sections_new,
-                "full_text": new_full,
-                "last_changed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            }
+        item = {
+            "tag": tag,
+            "url": url,
+            "region": region,  # ✨ добавлен region
+            "title": title,
+            "summary": (summary or "").strip(),
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "hash": page_sig,
+            "sections": sections_new,
+            "full_text": new_full,
+            "last_changed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
 
-            if existing_i is not None:
-                cache[existing_i] = item
-            else:
-                cache.append(item)
-                idx[key] = len(cache) - 1
-
-            changed_pages += 1
-            changed_sections_total += len(added_ids) + len(modified_ids) + len(removed_ids)
-
-            details.append({
-                "tag": tag,
-                "url": url,
-                "title": title,
-                "diff": {
-                    "added": [sec_map_new[sid].get("title") or sid for sid in added_ids],
-                    "modified": [sec_map_new[sid].get("title") or sid for sid in modified_ids],
-                    "removed": [
-                        (next((s.get("title") for s in (existing or {}).get("sections", [])
-                               if s.get("id") == sid), sid))
-                        for sid in removed_ids
-                    ],
-                },
-                "global_diff": global_diff,
-                "section_diffs": section_diffs
-            })
+        if existing_i is not None:
+            cache[existing_i] = item
+        else:
+            cache.append(item)
+            idx[key] = len(cache) - 1
+        
+        changed_pages += 1
+        changed_sections_total += len(added_ids) + len(modified_ids) + len(removed_ids)
+        
+        details.append({
+            "tag": tag,
+            "url": url,
+            "region": region,  # ✨ добавлен region
+            "title": title,
+            "diff": {
+                "added": [sec_map_new[sid].get("title") or sid for sid in added_ids],
+                "modified": [sec_map_new[sid].get("title") or sid for sid in modified_ids],
+                "removed": [
+                    (next((s.get("title") for s in (existing or {}).get("sections", [])
+                           if s.get("id") == sid), sid))
+                    for sid in removed_ids
+                ],
+            },
+            "global_diff": global_diff,
+            "section_diffs": section_diffs
+        })
 
     # 🔧 опционально чистим кэш от источников, которых больше нет в config.json
     if PRUNE_REMOVED_SOURCES:
-        valid_pairs = {(s.get("tag"), s.get("url")) for s in SOURCES if s.get("tag") and s.get("url")}
-        cache = [it for it in cache if (it.get("tag"), it.get("url")) in valid_pairs]
+        # Ключ теперь (tag, url, region)
+        valid_tuples = {(s.get("tag"), s.get("url"), s.get("region", "GLOBAL")) for s in SOURCES if s.get("tag") and s.get("url")}
+        cache = [it for it in cache if (it.get("tag"), it.get("url"), it.get("region", "GLOBAL")) in valid_tuples]
 
     stats = get_cache_stats()
     cache.sort(key=lambda x: x.get("ts", ""), reverse=True)
