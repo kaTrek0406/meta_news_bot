@@ -339,6 +339,11 @@ async def run_update() -> dict:
                     except httpx.HTTPStatusError as e:
                         status = getattr(e.response, 'status_code', 0) if hasattr(e, 'response') else 0
                         
+                        # Особая обработка 422 - если HTML уже получили, не считаем это ошибкой
+                        if status == 422 and html:
+                            log.info(f"✅ 422 ошибка обработана успешно, HTML получен ({len(html)} симв.)")
+                            break  # Выходим из retry цикла - HTML получили
+                        
                         # 407/403 для MD -> пробуем fallback на EU
                         if status in (407, 403) and region == "MD" and PROXY_FALLBACK_EU and PROXY_URL_EU and attempt == 0:
                             log.warning(f"⚠️ Ошибка {status} для MD прокси, переключаемся на EU fallback...")
