@@ -314,35 +314,35 @@ async def run_update() -> dict:
         
         title_auto, full_plain, cleaned_html = clean_html(html, url)
 
-            plain_norm = normalize_plain(full_plain or "")
-            page_sig = compute_hash(plain_norm)
+        plain_norm = normalize_plain(full_plain or "")
+        page_sig = compute_hash(plain_norm)
 
-            sections_new = extract_sections(cleaned_html or html)
-            sec_map_new = {s["id"]: s for s in sections_new if s.get("id")}
+        sections_new = extract_sections(cleaned_html or html)
+        sec_map_new = {s["id"]: s for s in sections_new if s.get("id")}
 
         key = (tag, url, region)
         existing_i = idx.get(key)
         existing = cache[existing_i] if existing_i is not None else None
 
-            added_ids, removed_ids, modified_ids = [], [], []
+        added_ids, removed_ids, modified_ids = [], [], []
 
-            if existing:
-                old_sections = existing.get("sections") or []
-                sec_map_old = {s.get("id"): s for s in old_sections if s.get("id")}
-                new_ids = set(sec_map_new.keys())
-                old_ids = set(sec_map_old.keys())
-                added_ids = list(new_ids - old_ids)
-                removed_ids = list(old_ids - new_ids)
-                modified_ids = [sid for sid in (new_ids & old_ids)
-                                if sec_map_new[sid].get("sig") != sec_map_old[sid].get("sig")]
-            else:
-                added_ids = list(sec_map_new.keys())
+        if existing:
+            old_sections = existing.get("sections") or []
+            sec_map_old = {s.get("id"): s for s in old_sections if s.get("id")}
+            new_ids = set(sec_map_new.keys())
+            old_ids = set(sec_map_old.keys())
+            added_ids = list(new_ids - old_ids)
+            removed_ids = list(old_ids - new_ids)
+            modified_ids = [sid for sid in (new_ids & old_ids)
+                            if sec_map_new[sid].get("sig") != sec_map_old[sid].get("sig")]
+        else:
+            added_ids = list(sec_map_new.keys())
 
-            changed_here = bool(
-                added_ids or removed_ids or modified_ids or
-                (existing is None) or
-                (existing and existing.get("hash") != page_sig)
-            )
+        changed_here = bool(
+            added_ids or removed_ids or modified_ids or
+            (existing is None) or
+            (existing and existing.get("hash") != page_sig)
+        )
         if not changed_here:
             continue
         
@@ -362,49 +362,49 @@ async def run_update() -> dict:
             old_sents, new_sents, threshold=0.0
         )
 
-            global_diff = {
-                "changed": [{"was": _clip_line(w), "now": _clip_line(n)} for (w, n) in pairs_global],
-                "removed": [_clip_line(s) for s in old_only_global],
-                "added": [_clip_line(s) for s in new_only_global],
-            }
+        global_diff = {
+            "changed": [{"was": _clip_line(w), "now": _clip_line(n)} for (w, n) in pairs_global],
+            "removed": [_clip_line(s) for s in old_only_global],
+            "added": [_clip_line(s) for s in new_only_global],
+        }
 
-            section_diffs: List[Dict[str, Any]] = []
-            if added_ids:
-                added_preview = []
-                for sid in added_ids:
-                    sents = _split_sentences(sec_map_new[sid].get("text") or "")
-                    added_preview.append(_clip_line(sents[0] if sents else (sec_map_new[sid].get("title") or sid)))
-                section_diffs.append({"type": "added", "title": "Добавлено", "added": added_preview})
+        section_diffs: List[Dict[str, Any]] = []
+        if added_ids:
+            added_preview = []
+            for sid in added_ids:
+                sents = _split_sentences(sec_map_new[sid].get("text") or "")
+                added_preview.append(_clip_line(sents[0] if sents else (sec_map_new[sid].get("title") or sid)))
+            section_diffs.append({"type": "added", "title": "Добавлено", "added": added_preview})
 
-            if removed_ids:
-                removed_titles = []
-                for sid in removed_ids:
-                    old_sec = next((s for s in (existing or {}).get("sections", []) if s.get("id") == sid), None)
-                    ttl = (old_sec or {}).get("title") or sid
-                    removed_titles.append(_clip_line(ttl))
-                section_diffs.append({"type": "removed", "title": "Удалено", "removed": removed_titles})
+        if removed_ids:
+            removed_titles = []
+            for sid in removed_ids:
+                old_sec = next((s for s in (existing or {}).get("sections", []) if s.get("id") == sid), None)
+                ttl = (old_sec or {}).get("title") or sid
+                removed_titles.append(_clip_line(ttl))
+            section_diffs.append({"type": "removed", "title": "Удалено", "removed": removed_titles})
 
-            if modified_ids:
-                for sid in modified_ids:
-                    old_s = next((s for s in (existing or {}).get("sections", []) if s.get("id") == sid), {})
-                    new_s = sec_map_new[sid]
-                    old_txt = old_s.get("text") or ""
-                    new_txt = new_s.get("text") or ""
-                    old_sents_s = _split_sentences(old_txt)
-                    new_sents_s = _split_sentences(new_txt)
-                    pairs_s, old_only_s, new_only_s = _pair_changed_sentences(
-                        old_sents_s, new_sents_s, threshold=0.0
-                    )
-                    block = {
-                        "type": "changed",
-                        "title": new_s.get("title") or sid,
-                        "changed": [{"was": _clip_line(w), "now": _clip_line(n)} for (w, n) in pairs_s]
-                    }
-                    if old_only_s:
-                        block["removed_inline"] = [_clip_line(s) for s in old_only_s]
-                    if new_only_s:
-                        block["added_inline"] = [_clip_line(s) for s in new_only_s]
-                    section_diffs.append(block)
+        if modified_ids:
+            for sid in modified_ids:
+                old_s = next((s for s in (existing or {}).get("sections", []) if s.get("id") == sid), {})
+                new_s = sec_map_new[sid]
+                old_txt = old_s.get("text") or ""
+                new_txt = new_s.get("text") or ""
+                old_sents_s = _split_sentences(old_txt)
+                new_sents_s = _split_sentences(new_txt)
+                pairs_s, old_only_s, new_only_s = _pair_changed_sentences(
+                    old_sents_s, new_sents_s, threshold=0.0
+                )
+                block = {
+                    "type": "changed",
+                    "title": new_s.get("title") or sid,
+                    "changed": [{"was": _clip_line(w), "now": _clip_line(n)} for (w, n) in pairs_s]
+                }
+                if old_only_s:
+                    block["removed_inline"] = [_clip_line(s) for s in old_only_s]
+                if new_only_s:
+                    block["added_inline"] = [_clip_line(s) for s in new_only_s]
+                section_diffs.append(block)
 
         item = {
             "tag": tag,
