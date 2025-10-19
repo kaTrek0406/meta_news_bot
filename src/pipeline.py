@@ -399,7 +399,8 @@ async def run_update() -> dict:
                                                 log.info(f"✅ Получен HTML без прокси: {len(direct_r.text)} симв")
                                                 html = direct_r.text
                                                 err = None
-                                                break
+                                                # Принудительно выходим из всех retry циклов
+                                                break  # Из исключения
                                     except Exception as direct_e:
                                         log.warning(f"⚠️ Прямой запрос тоже не сработал: {direct_e}")
                                 else:
@@ -447,7 +448,11 @@ async def run_update() -> dict:
                         else:
                             raise
                 else:
-                    if err:
+                    # Проверяем если HTML получен через fallback - не выбрасываем ошибку
+                    if html:
+                        log.info(f"✅ HTML получен через fallback, продолжаем обработку")
+                        err = None  # Сбрасываем ошибку
+                    elif err:
                         raise err
             except Exception as e:
                 log.info(f"🔍 Внешний Exception пойман: {type(e).__name__}: {e}, HTML: {len(html) if html else 0} симв")
