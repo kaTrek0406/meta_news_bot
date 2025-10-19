@@ -346,15 +346,22 @@ async def run_update() -> dict:
                                 html = r.text
                         
                         break  # Успешно!
-                    except httpx.HTTPStatusError as e:
+                    except (httpx.HTTPStatusError, httpx.ProxyError) as e:
                         status = getattr(e.response, 'status_code', 0) if hasattr(e, 'response') else 0
-                        log.info(f"🔍 HTTPStatusError пойман: статус {status}, HTML: {len(e.response.text) if hasattr(e, 'response') and e.response and e.response.text else 0} симв")
+                        response_text = getattr(e.response, 'text', '') if hasattr(e, 'response') and e.response else ''
+                        log.info(f"🔍 {type(e).__name__} пойман: статус {status}, HTML: {len(response_text)} симв")
                         
-                        # Особая обработка 422 - если HTML уже получили, не считаем это ошибкой
-                        if status == 422 and html:
-                            log.info(f"✅ 422 ошибка обработана успешно, HTML получен ({len(html)} симв.)")
-                            err = None  # Сбрасываем ошибку, так как HTML получили
-                            break  # Выходим из retry цикла - HTML получили
+                        # Особая обработка 422 - для ProxyError проверяем response_text
+                        if status == 422:
+                            # Проверяем как HTML уже полученный раньше, так и в response ошибки
+                            available_html = html or response_text
+                            if available_html and len(available_html.strip()) > 100:
+                                is_meta_site = any(domain in url for domain in ["transparency.meta.com", "facebook.com", "about.fb.com", "developers.facebook.com"])
+                                if is_meta_site:
+                                    log.info(f"✅ 422 от Meta через прокси: HTML получен ({len(available_html)} симв.), продолжаем")
+                                    html = available_html  # Используем HTML из response
+                                    err = None  # Сбрасываем ошибку
+                                    break  # Выходим из retry цикла
                         
                         # 407/403 для MD -> пробуем fallback на EU
                         if status in (407, 403) and region == "MD" and PROXY_FALLBACK_EU and PROXY_URL_EU and attempt == 0:
