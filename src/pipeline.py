@@ -224,6 +224,7 @@ async def _summarize_async(plain: str) -> str:
         return await asyncio.to_thread(summarize_rules, plain)
 
 async def run_update() -> dict:
+    log.info("🔄 Pipeline запущен - версия 2025-10-19-v2 с исправлением 422")
     errors: List[Dict[str, Any]] = []
     details: List[Dict[str, Any]] = []
 
@@ -296,9 +297,11 @@ async def run_update() -> dict:
                         r = await client.get(url, headers=headers)
                         
                         # Особая обработка для статуса 422 - Meta сайты часто возвращают 422 с валидным HTML
+                        log.debug(f"🔍 DEBUG: Получили статус {r.status_code} для {url}")
                         if r.status_code == 422:
                             # Для Meta/Facebook сайтов принимаем любой ответ с содержимым
                             is_meta_site = any(domain in url for domain in ["transparency.meta.com", "facebook.com", "about.fb.com", "developers.facebook.com"])
+                            log.info(f"🔍 422 DEBUG: is_meta_site={is_meta_site}, HTML size={len(r.text) if r.text else 0}")
                             if is_meta_site and r.text and len(r.text.strip()) > 100:
                                 log.info(f"✅ Meta сайт: Статус 422 но получен HTML ({len(r.text)} симв.), продолжаем")
                                 html = r.text
