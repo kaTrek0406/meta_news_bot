@@ -347,21 +347,44 @@ async def run_update() -> dict:
                         
                         break  # Успешно!
                     except (httpx.HTTPStatusError, httpx.ProxyError) as e:
-                        status = getattr(e.response, 'status_code', 0) if hasattr(e, 'response') else 0
-                        response_text = getattr(e.response, 'text', '') if hasattr(e, 'response') and e.response else ''
-                        log.info(f"🔍 {type(e).__name__} пойман: статус {status}, HTML: {len(response_text)} симв")
+                        # Особая логика для ProxyError - статус может быть в сообщении
+                        if isinstance(e, httpx.ProxyError):
+                            # Пытаемся извлечь статус из сообщения
+                            error_msg = str(e)
+                            status = 422 if '422' in error_msg else 0
+                            response_text = ''
+                            log.info(f"🔍 ProxyError: сообщение='{error_msg}', извлечен статус={status}")
+                        else:
+                            status = getattr(e.response, 'status_code', 0) if hasattr(e, 'response') else 0
+                            response_text = getattr(e.response, 'text', '') if hasattr(e, 'response') and e.response else ''
+                            log.info(f"🔍 {type(e).__name__} пойман: статус {status}, HTML: {len(response_text)} симв")
                         
                         # Особая обработка 422 - для ProxyError проверяем response_text
                         if status == 422:
-                            # Проверяем как HTML уже полученный раньше, так и в response ошибки
-                            available_html = html or response_text
-                            if available_html and len(available_html.strip()) > 100:
-                                is_meta_site = any(domain in url for domain in ["transparency.meta.com", "facebook.com", "about.fb.com", "developers.facebook.com"])
-                                if is_meta_site:
-                                    log.info(f"✅ 422 от Meta через прокси: HTML получен ({len(available_html)} симв.), продолжаем")
-                                    html = available_html  # Используем HTML из response
-                                    err = None  # Сбрасываем ошибку
-                                    break  # Выходим из retry цикла
+                            is_meta_site = any(domain in url for domain in ["transparency.meta.com", "facebook.com", "about.fb.com", "developers.facebook.com"])
+                            if is_meta_site:
+                                if isinstance(e, httpx.ProxyError):
+                                    # Для ProxyError от Meta - пробуем запрос без прокси
+                                    log.warning(f"⚠️ 422 ProxyError от Meta, пробуем без прокси...")
+                                    try:
+                                        # Краткий запрос без прокси для получения HTML
+                                        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0), verify=False) as direct_client:
+                                            direct_r = await direct_client.get(url, headers=headers)
+                                            if direct_r.status_code in [200, 422] and direct_r.text and len(direct_r.text) > 1000:
+                                                log.info(f"✅ Получен HTML без прокси: {len(direct_r.text)} симв")
+                                                html = direct_r.text
+                                                err = None
+                                                break
+                                    except Exception as direct_e:
+                                        log.warning(f"⚠️ Прямой запрос тоже не сработал: {direct_e}")
+                                else:
+                                    # Обычная обработка HTTPStatusError
+                                    available_html = html or response_text
+                                    if available_html and len(available_html.strip()) > 100:
+                                        log.info(f"✅ 422 от Meta: HTML получен ({len(available_html)} симв.), продолжаем")
+                                        html = available_html
+                                        err = None
+                                        break
                         
                         # 407/403 для MD -> пробуем fallback на EU
                         if status in (407, 403) and region == "MD" and PROXY_FALLBACK_EU and PROXY_URL_EU and attempt == 0:
