@@ -270,7 +270,10 @@ async def run_update() -> dict:
         
         # Отладочное логирование прокси
         if proxies:
-            log.info(f"🔐 Используется прокси для {region}: {list(proxies.keys())[0] if proxies else 'None'}")
+            proxy_url = proxies.get('https://') or proxies.get('http://', '')
+            # Показываем только proxy.froxy.com:9000 для безопасности
+            safe_proxy = proxy_url.split('@')[-1] if '@' in proxy_url else proxy_url
+            log.info(f"🔐 Используется прокси для {region}: {safe_proxy}")
         else:
             log.warning(f"⚠️ Прокси НЕ ИСПОЛЬЗУЕТСЯ для {region} (proxies=None)")
         
@@ -304,7 +307,8 @@ async def run_update() -> dict:
                                 html = r.text
                             else:
                                 log.warning(f"⚠️ Статус 422 с коротким ответом ({len(r.text) if r.text else 0} симв.), попробуем еще раз")
-                                r.raise_for_status()
+                                # НЕ вызываем raise_for_status для 422 - пусть retry лоп обработает
+                                continue  # Пропускаем этот attempt и пробуем следующий
                         elif r.status_code in [200, 201, 202]:
                             html = r.text
                         else:
@@ -343,6 +347,7 @@ async def run_update() -> dict:
                         # Особая обработка 422 - если HTML уже получили, не считаем это ошибкой
                         if status == 422 and html:
                             log.info(f"✅ 422 ошибка обработана успешно, HTML получен ({len(html)} симв.)")
+                            err = None  # Сбрасываем ошибку, так как HTML получили
                             break  # Выходим из retry цикла - HTML получили
                         
                         # 407/403 для MD -> пробуем fallback на EU
@@ -384,9 +389,13 @@ async def run_update() -> dict:
                     if err:
                         raise err
             except Exception as e:
-                log.error("Ошибка при загрузке %s: %s", url, e)
-                errors.append({"tag": tag, "url": url, "region": region, "error": str(e)})
-                continue
+                # Проверяем, что не получили ли HTML во время 422 ошибки
+                if html:
+                    log.info(f"✅ HTML получен несмотря на ошибку ({len(html)} симв.), продолжаем обработку")
+                else:
+                    log.error("Ошибка при загрузке %s: %s", url, e)
+                    errors.append({"tag": tag, "url": url, "region": region, "error": str(e)})
+                    continue
         
         if not html:
             errors.append({"tag": tag, "url": url, "region": region, "error": "No HTML received"})
