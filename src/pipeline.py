@@ -237,7 +237,7 @@ async def _summarize_async(plain: str) -> str:
         return await asyncio.to_thread(summarize_rules, plain)
 
 async def run_update() -> dict:
-    log.info("🔄 Pipeline запущен - версия 2025-10-19-v2 с исправлением 422")
+    log.info("🔄 Pipeline запущен - версия 2025-10-19-v4 с минимальными интервалами")
     
     # Проверка реального IP для диагностики прокси
     try:
@@ -293,15 +293,15 @@ async def run_update() -> dict:
         # Обрабатываем Facebook URL для обхода JavaScript редиректов
         url = _fix_facebook_url(url)
         
-        # Задержки между запросами
+        # Минимальные задержки для резидентных прокси - максимальная эффективность
         if src_idx > 0:
             if "whatsapp.com" in url:
-                delay = 45.0 + random.random() * 15.0
-                log.info(f"💬 ⏳ WhatsApp: ожидание {delay:.1f} сек (увеличенная пауза)...")
+                delay = 2.0 + random.random() * 1.0  # 2-3 сек для WhatsApp
+                log.info(f"💬 ⏳ WhatsApp: {delay:.1f} сек")
             else:
-                # Увеличили задержки для снижения нагрузки на Meta серверы
-                delay = (60.0 if random.random() < 0.3 else 80.0) + random.random() * 20.0
-                log.info(f"⏳ Ожидание {delay:.1f} сек перед следующим запросом...")
+                # Минимальные интервалы с прокси - как на локалке
+                delay = 0.5 + random.random() * 1.0  # 0.5-1.5 сек для Meta
+                log.info(f"⏳ {delay:.1f} сек")
             await asyncio.sleep(delay)
         
         # Получаем прокси для региона источника
@@ -431,13 +431,13 @@ async def run_update() -> dict:
                             # Переключаемся на EU прокси
                             proxies = _get_proxy_for_region("EU", proxy_country, session_id)
                             used_fallback = True
-                            await asyncio.sleep(5)
+                            await asyncio.sleep(2)  # Быстрое переключение на EU
                             continue
                         
                         if status in (500, 502, 503, 429, 403, 407):
                             err = e
                             if attempt < FETCH_RETRIES - 1:
-                                backoff = FETCH_RETRY_BACKOFF * (3 ** attempt) + random.random() * 10  # Увеличили случайность для 500 ошибок
+                                backoff = FETCH_RETRY_BACKOFF * (1.5 ** attempt) + random.random() * 2  # Быстрые retry
                                 if status == 500:
                                     log.warning(f"⚠️ Сервер Meta недоступен (500), попытка {attempt+1}/{FETCH_RETRIES}, ожидание {backoff:.1f} сек...")
                                 else:
@@ -455,7 +455,7 @@ async def run_update() -> dict:
                     except Exception as e:
                         err = e
                         if attempt < FETCH_RETRIES - 1:
-                            backoff = FETCH_RETRY_BACKOFF * (2 ** attempt)
+                            backoff = FETCH_RETRY_BACKOFF * (1.2 ** attempt)  # Быстрые retry
                             await asyncio.sleep(backoff)
                             headers = _get_random_headers(url, accept_lang)
                         else:
