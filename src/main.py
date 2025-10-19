@@ -14,6 +14,7 @@ def run_scheduler():
     sch.start()
     return sch
 
+# Force Railway restart - 2025-10-19 00:10 UTC
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     scheduler = run_scheduler()

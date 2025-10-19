@@ -56,13 +56,25 @@ def _get_proxy_for_region(region: str, proxy_country: Optional[str] = None, sess
         log.debug(f"🚫 USE_PROXY=False, возвращаем None")
         return None
     
-    # Определяем какой прокси URL использовать
-    if region == "MD" and PROXY_URL:
+    # Приоритет SOCKS5 над HTTP (для обхода блокировок Railway)
+    if region == "MD" and SOCKS5_URL:
+        base_url = SOCKS5_URL
+        is_socks = True
+    elif region == "EU" and SOCKS5_URL_EU:
+        base_url = SOCKS5_URL_EU
+        is_socks = True
+    elif SOCKS5_URL:
+        base_url = SOCKS5_URL
+        is_socks = True
+    elif region == "MD" and PROXY_URL:
         base_url = PROXY_URL
+        is_socks = False
     elif region == "EU" and PROXY_URL_EU:
         base_url = PROXY_URL_EU
+        is_socks = False
     elif PROXY_URL:
         base_url = PROXY_URL
+        is_socks = False
     else:
         return None
     
