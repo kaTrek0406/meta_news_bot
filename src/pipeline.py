@@ -294,7 +294,9 @@ async def run_update() -> dict:
                 err = None
                 for attempt in range(FETCH_RETRIES):
                     try:
+                        log.info(f"🔍 HTTP запрос attempt {attempt+1}/{FETCH_RETRIES} к {url}")
                         r = await client.get(url, headers=headers)
+                        log.info(f"🔍 HTTP ответ: статус {r.status_code}, HTML: {len(r.text)} симв")
                         
                         # Особая обработка для статуса 422 - Meta сайты часто возвращают 422 с валидным HTML
                         log.debug(f"🔍 DEBUG: Получили статус {r.status_code} для {url}")
@@ -346,6 +348,7 @@ async def run_update() -> dict:
                         break  # Успешно!
                     except httpx.HTTPStatusError as e:
                         status = getattr(e.response, 'status_code', 0) if hasattr(e, 'response') else 0
+                        log.info(f"🔍 HTTPStatusError пойман: статус {status}, HTML: {len(e.response.text) if hasattr(e, 'response') and e.response and e.response.text else 0} симв")
                         
                         # Особая обработка 422 - если HTML уже получили, не считаем это ошибкой
                         if status == 422 and html:
@@ -392,6 +395,7 @@ async def run_update() -> dict:
                     if err:
                         raise err
             except Exception as e:
+                log.info(f"🔍 Внешний Exception пойман: {type(e).__name__}: {e}, HTML: {len(html) if html else 0} симв")
                 # Проверяем, что не получили ли HTML во время 422 ошибки
                 if html:
                     log.info(f"✅ HTML получен несмотря на ошибку ({len(html)} симв.), продолжаем обработку")
