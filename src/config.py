@@ -23,6 +23,11 @@ PROXY_PROVIDER: str = os.getenv("PROXY_PROVIDER", "froxy")  # froxy или др�
 PROXY_STICKY: bool = os.getenv("PROXY_STICKY", "0") == "1"  # Sticky sessions
 PROXY_FALLBACK_EU: bool = os.getenv("PROXY_FALLBACK_EU", "1") == "1"  # Fallback MD->EU
 
+# Альтернативные прокси (для обхода блокировок Railway)
+SOCKS5_URL: str = os.getenv("SOCKS5_URL", "")  # SOCKS5 прокси
+SOCKS5_URL_EU: str = os.getenv("SOCKS5_URL_EU", "")  # SOCKS5 EU
+HTTP_TUNNEL_URL: str = os.getenv("HTTP_TUNNEL_URL", "")  # HTTP Tunnel прокси
+
 # --- каталоги ---
 DATA_DIR: Path = PROJECT_ROOT / "data"
 LOGS_DIR: Path = PROJECT_ROOT / "logs"

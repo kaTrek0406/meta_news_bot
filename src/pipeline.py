@@ -15,7 +15,8 @@ import re
 from .storage import load_cache, save_cache, compute_hash, get_cache_stats
 from .config import (
     PROJECT_ROOT, SOURCES, USE_PROXY, PROXY_URL, PROXY_URL_EU,
-    PROXY_PROVIDER, PROXY_STICKY, PROXY_FALLBACK_EU
+    PROXY_PROVIDER, PROXY_STICKY, PROXY_FALLBACK_EU,
+    SOCKS5_URL, SOCKS5_URL_EU, HTTP_TUNNEL_URL
 )
 from .html_clean import clean_html
 from .summarize import summarize_rules, normalize_plain, extract_sections
@@ -68,17 +69,23 @@ def _get_proxy_for_region(region: str, proxy_country: Optional[str] = None, sess
     # Для Froxy формат: http://USER:PASS@proxy.froxy.com:9000
     # с параметрами в user: wifi;md;; или session=<rand>
     if PROXY_PROVIDER == "froxy":
+        # Попробуем SOCKS5 если HTTP не работает
+        socks5_url = base_url.replace("http://", "socks5://")
+        
         # Froxy: добавляем session в пароль (через wifi;md;;:)
         # Формат wifi;md;; означает: wifi (тип), md (страна), пустые параметры
         if PROXY_STICKY and session_id:
             # Добавляем session в пароль
             # Для Froxy добавляем session=<rand> в пароль
-            modified_url = base_url.replace("@proxy.froxy.com", f":session={session_id}@proxy.froxy.com")
+            modified_http_url = base_url.replace("@proxy.froxy.com", f":session={session_id}@proxy.froxy.com")
+            modified_socks_url = socks5_url.replace("@proxy.froxy.com", f":session={session_id}@proxy.froxy.com")
             log.debug(f"🔐 Froxy sticky session: region={region}, session={session_id}")
-            return {"http://": modified_url, "https://": modified_url}
+            # Возвращаем SOCKS5 для обхода блокировки Railway
+            return {"all://": modified_socks_url}
         else:
             log.debug(f"🔐 Froxy прокси: region={region}")
-            return {"http://": base_url, "https://": base_url}
+            # Возвращаем SOCKS5 для обхода блокировки Railway
+            return {"all://": socks5_url}
     else:
         # Другие прокси-провайдеры
         log.debug(f"🔐 Прокси: region={region}, provider={PROXY_PROVIDER}")
