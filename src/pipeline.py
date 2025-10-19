@@ -69,23 +69,17 @@ def _get_proxy_for_region(region: str, proxy_country: Optional[str] = None, sess
     # Для Froxy формат: http://USER:PASS@proxy.froxy.com:9000
     # с параметрами в user: wifi;md;; или session=<rand>
     if PROXY_PROVIDER == "froxy":
-        # Попробуем SOCKS5 если HTTP не работает
-        socks5_url = base_url.replace("http://", "socks5://")
-        
         # Froxy: добавляем session в пароль (через wifi;md;;:)
         # Формат wifi;md;; означает: wifi (тип), md (страна), пустые параметры
         if PROXY_STICKY and session_id:
             # Добавляем session в пароль
             # Для Froxy добавляем session=<rand> в пароль
-            modified_http_url = base_url.replace("@proxy.froxy.com", f":session={session_id}@proxy.froxy.com")
-            modified_socks_url = socks5_url.replace("@proxy.froxy.com", f":session={session_id}@proxy.froxy.com")
+            modified_url = base_url.replace("@proxy.froxy.com", f":session={session_id}@proxy.froxy.com")
             log.debug(f"🔐 Froxy sticky session: region={region}, session={session_id}")
-            # Возвращаем SOCKS5 для обхода блокировки Railway
-            return {"all://": modified_socks_url}
+            return {"http://": modified_url, "https://": modified_url}
         else:
             log.debug(f"🔐 Froxy прокси: region={region}")
-            # Возвращаем SOCKS5 для обхода блокировки Railway
-            return {"all://": socks5_url}
+            return {"http://": base_url, "https://": base_url}
     else:
         # Другие прокси-провайдеры
         log.debug(f"🔐 Прокси: region={region}, provider={PROXY_PROVIDER}")
