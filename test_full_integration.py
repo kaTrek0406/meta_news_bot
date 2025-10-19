@@ -75,6 +75,15 @@ async def test_1_configuration(results: FullTestResults):
     """Тест 1: Конфигурация и настройки"""
     results.start_test("Конфигурация и настройки")
     
+    # Устанавливаем реальные прокси для тестов
+    os.environ["USE_PROXY"] = "1"
+    os.environ["PROXY_PROVIDER"] = "froxy"
+    os.environ["PROXY_URL"] = "http://SakkTDU3kVHpEtNr:wifi;md;;;@proxy.froxy.com:9000"
+    os.environ["PROXY_URL_EU"] = "http://SakkTDU3kVHpEtNr:wifi;de;;;@proxy.froxy.com:9000"
+    os.environ["PROXY_STICKY"] = "1"
+    os.environ["PROXY_FALLBACK_EU"] = "1"
+    print(f"[PROXY] Конфигурирую тесты с реальными Froxy прокси: SakkTDU3kVHpEtNr")
+    
     try:
         # Проверяем прокси
         validate_proxy_config()
@@ -112,7 +121,9 @@ async def test_2_proxy_functionality(results: FullTestResults):
         try:
             proxy_config = _get_proxy_for_region(region, proxy_country, "integration_test")
             if proxy_config:
-                results.pass_test(f"Прокси для {region}")
+                proxy_url = proxy_config.get('https://') or proxy_config.get('http://', '')
+                safe_proxy = proxy_url.split('@')[-1] if '@' in proxy_url else proxy_url
+                results.pass_test(f"Прокси для {region}", f"Прокси: {safe_proxy}")
                 
                 # Тестируем реальное подключение
                 try:
