@@ -225,6 +225,31 @@ async def _summarize_async(plain: str) -> str:
 
 async def run_update() -> dict:
     log.info("🔄 Pipeline запущен - версия 2025-10-19-v2 с исправлением 422")
+    
+    # Проверка реального IP для диагностики прокси
+    try:
+        # IP без прокси
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+            r = await client.get("https://httpbin.org/ip")
+            direct_ip = r.json().get('origin')
+            log.info(f"🌎 Прямой IP Railway: {direct_ip}")
+        
+        # IP через прокси
+        if USE_PROXY:
+            test_proxies = _get_proxy_for_region("GLOBAL", None, "ip_test")
+            if test_proxies:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0), proxies=test_proxies, verify=False) as client:
+                    r = await client.get("https://httpbin.org/ip")
+                    proxy_ip = r.json().get('origin')
+                    log.info(f"🌎 IP через прокси: {proxy_ip}")
+                    if direct_ip == proxy_ip:
+                        log.warning(f"⚠️ ПРОКСИ НЕ РАБОТАЕТ! IP одинаковые: {direct_ip}")
+                    else:
+                        log.info(f"✅ Прокси работает! Прямой: {direct_ip}, Прокси: {proxy_ip}")
+            else:
+                log.warning("⚠️ Прокси конфиг не получен!")
+    except Exception as e:
+        log.warning(f"⚠️ Ошибка проверки IP: {e}")
     errors: List[Dict[str, Any]] = []
     details: List[Dict[str, Any]] = []
 
