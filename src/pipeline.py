@@ -12,6 +12,14 @@ import httpx
 from difflib import SequenceMatcher
 import re
 
+# Импорт curl-cffi для обхода TLS fingerprinting
+try:
+    from curl_cffi.requests import AsyncSession
+    CURL_CFFI_AVAILABLE = True
+except ImportError:
+    CURL_CFFI_AVAILABLE = False
+    AsyncSession = None
+
 from .storage import load_cache, save_cache, compute_hash, get_cache_stats
 from .config import (
     PROJECT_ROOT, SOURCES, USE_PROXY, PROXY_URL, PROXY_URL_EU,
@@ -78,14 +86,10 @@ def _get_proxy_for_region(region: str, proxy_country: Optional[str] = None, sess
     else:
         return None
     
-    # Для Froxy формат: http://USER:PASS@proxy.froxy.com:9000
-    # с параметрами в user: wifi;md;; или session=<rand>
+    # Обработка Froxy прокси
     if PROXY_PROVIDER == "froxy":
-        # Froxy: добавляем session в пароль (через wifi;md;;:)
-        # Формат wifi;md;; означает: wifi (тип), md (страна), пустые параметры
         if PROXY_STICKY and session_id:
-            # Добавляем session в пароль
-            # Для Froxy добавляем session=<rand> в пароль
+            # Добавляем session для sticky сессий
             modified_url = base_url.replace("@proxy.froxy.com", f":session={session_id}@proxy.froxy.com")
             log.debug(f"🔐 Froxy sticky session: region={region}, session={session_id}")
             return {"http://": modified_url, "https://": modified_url}
@@ -119,6 +123,50 @@ def _fix_facebook_url(url: str) -> str:
             url = f"{url}{separator}_fb_noscript=1"
             log.debug(f"📋 Добавлен _fb_noscript к: {url}")
     return url
+
+async def _fetch_with_curl_cffi(url: str, headers: dict, proxies: Optional[dict] = None, timeout: float = 30.0):
+    """
+    Адаптер для curl-cffi, который возвращает объект с интерфейсом httpx.Response
+    """
+    if not CURL_CFFI_AVAILABLE:
+        raise ImportError("curl-cffi not available")
+    
+    class CurlCffiResponse:
+        def __init__(self, response):
+            self._response = response
+            self.status_code = response.status_code
+            self.text = response.text
+            self.content = response.content
+        
+        def raise_for_status(self):
+            if 400 <= self.status_code < 600:
+                raise httpx.HTTPStatusError(f"{self.status_code} Error", request=None, response=self)
+    
+    # Преобразуем proxies из httpx формата в curl-cffi
+    curl_proxies = None
+    if proxies:
+        # httpx: {"http://": "...", "https://": "..."} -> curl-cffi: {"http": "...", "https": "..."}
+        proxy_url = proxies.get("http://", proxies.get("https://"))
+        
+        # Прокси уже в HTTP формате, используем как есть
+        
+        curl_proxies = {
+            "http": proxy_url,
+            "https": proxy_url
+        }
+    
+    async with AsyncSession(
+        impersonate="chrome120",  # TLS fingerprint Chrome 120
+        verify=False,  # Отключаем проверку SSL
+        timeout=timeout
+    ) as session:
+        response = await session.get(
+            url,
+            headers=headers,
+            proxies=curl_proxies,
+            allow_redirects=True
+        )
+        return CurlCffiResponse(response)
 
 def _get_random_headers(url: str = "", accept_lang: Optional[str] = None):
     """Генерирует случайные заголовки для каждого запроса"""
@@ -241,24 +289,42 @@ async def run_update() -> dict:
     
     # Проверка реального IP для диагностики прокси
     try:
-        # IP без прокси
-        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
-            r = await client.get("https://httpbin.org/ip")
-            direct_ip = r.json().get('origin')
+        # IP без прокси (только для сравнения)
+        try:
+            if CURL_CFFI_AVAILABLE:
+                r = await _fetch_with_curl_cffi("https://httpbin.org/ip", {}, None, 5.0)
+                import json
+                direct_ip = json.loads(r.text).get('origin')
+            else:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+                    r = await client.get("https://httpbin.org/ip")
+                    direct_ip = r.json().get('origin')
             log.info(f"🌎 Прямой IP Railway: {direct_ip}")
+        except Exception as ip_e:
+            direct_ip = "unknown"
+            log.warning(f"⚠️ Ошибка проверки IP: {ip_e}")
         
         # IP через прокси
         if USE_PROXY:
             test_proxies = _get_proxy_for_region("GLOBAL", None, "ip_test")
             if test_proxies:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0), proxies=test_proxies, verify=False) as client:
-                    r = await client.get("https://httpbin.org/ip")
-                    proxy_ip = r.json().get('origin')
+                try:
+                    if CURL_CFFI_AVAILABLE:
+                        r = await _fetch_with_curl_cffi("https://httpbin.org/ip", {}, test_proxies, 5.0)
+                        import json
+                        proxy_ip = json.loads(r.text).get('origin')
+                    else:
+                        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0), proxies=test_proxies, verify=False) as client:
+                            r = await client.get("https://httpbin.org/ip")
+                            proxy_ip = r.json().get('origin')
+                    
                     log.info(f"🌎 IP через прокси: {proxy_ip}")
                     if direct_ip == proxy_ip:
                         log.warning(f"⚠️ ПРОКСИ НЕ РАБОТАЕТ! IP одинаковые: {direct_ip}")
                     else:
                         log.info(f"✅ Прокси работает! Прямой: {direct_ip}, Прокси: {proxy_ip}")
+                except Exception as proxy_e:
+                    log.warning(f"⚠️ Ошибка проверки прокси IP: {proxy_e}")
             else:
                 log.warning("⚠️ Прокси конфиг не получен!")
     except Exception as e:
@@ -326,140 +392,142 @@ async def run_update() -> dict:
         html = None
         used_fallback = False
         
-        async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True, proxies=proxies, verify=verify_ssl) as client:
-            try:
-                # Retry логика
-                err = None
-                for attempt in range(FETCH_RETRIES):
-                    try:
-                        log.info(f"🔍 HTTP запрос attempt {attempt+1}/{FETCH_RETRIES} к {url}")
-                        r = await client.get(url, headers=headers)
-                        log.info(f"🔍 HTTP ответ: статус {r.status_code}, HTML: {len(r.text)} симв")
-                        
-                        # Особая обработка для статуса 422 - Meta сайты часто возвращают 422 с валидным HTML
-                        log.debug(f"🔍 DEBUG: Получили статус {r.status_code} для {url}")
-                        if r.status_code == 422:
-                            # Для Meta/Facebook сайтов принимаем любой ответ с содержимым
-                            is_meta_site = any(domain in url for domain in ["transparency.meta.com", "facebook.com", "about.fb.com", "developers.facebook.com"])
-                            log.info(f"🔍 422 DEBUG: is_meta_site={is_meta_site}, HTML size={len(r.text) if r.text else 0}")
-                            if is_meta_site and r.text and len(r.text.strip()) > 100:
-                                log.info(f"✅ Meta сайт: Статус 422 но получен HTML ({len(r.text)} симв.), продолжаем")
-                                html = r.text
-                            elif r.text and len(r.text.strip()) > 500:
-                                log.info(f"✅ Статус 422 но получен валидный HTML ({len(r.text)} симв.), продолжаем")
-                                html = r.text
-                            else:
-                                log.warning(f"⚠️ Статус 422 с коротким ответом ({len(r.text) if r.text else 0} симв.), попробуем еще раз")
-                                # НЕ вызываем raise_for_status для 422 - пусть retry лоп обработает
-                                continue  # Пропускаем этот attempt и пробуем следующий
-                        elif r.status_code in [200, 201, 202]:
+        # Используем curl-cffi для ВСЕХ запросов через прокси
+        use_curl_cffi = CURL_CFFI_AVAILABLE and USE_PROXY
+        
+        try:
+            # Retry логика
+            err = None
+            for attempt in range(FETCH_RETRIES):
+                try:
+                    log.info(f"🔍 HTTP запрос attempt {attempt+1}/{FETCH_RETRIES} к {url} ({'curl-cffi' if use_curl_cffi else 'httpx'})")
+                    
+                    if use_curl_cffi:
+                        timeout_seconds = TIMEOUT.total if hasattr(TIMEOUT, 'total') else 30.0
+                        r = await _fetch_with_curl_cffi(url, headers, proxies, timeout_seconds)
+                    else:
+                        async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True, proxies=proxies, verify=verify_ssl) as client:
+                            r = await client.get(url, headers=headers)
+                    
+                    log.info(f"🔍 HTTP ответ: статус {r.status_code}, HTML: {len(r.text)} симв")
+                    
+                    # Особая обработка для статусов 400/422 - Meta сайты часто возвращают эти коды с валидным HTML
+                    log.debug(f"🔍 DEBUG: Получили статус {r.status_code} для {url}")
+                    if r.status_code in [400, 422]:
+                        # Для Meta/Facebook сайтов принимаем любой ответ с содержимым
+                        is_meta_site = any(domain in url for domain in ["transparency.meta.com", "facebook.com", "about.fb.com", "developers.facebook.com"])
+                        log.info(f"🔍 {r.status_code} DEBUG: is_meta_site={is_meta_site}, HTML size={len(r.text) if r.text else 0}")
+                        if is_meta_site and r.text and len(r.text.strip()) > 100:
+                            log.info(f"✅ Meta сайт: Статус {r.status_code} но получен HTML ({len(r.text)} симв.), продолжаем")
+                            html = r.text
+                        elif r.text and len(r.text.strip()) > 500:
+                            log.info(f"✅ Статус {r.status_code} но получен валидный HTML ({len(r.text)} симв.), продолжаем")
                             html = r.text
                         else:
-                            r.raise_for_status()
-                            html = r.text
-                        
-                        # Проверка на блокировку
-                        if "You're Temporarily Blocked" in html or "going too fast" in html:
+                            log.warning(f"⚠️ Статус {r.status_code} с коротким ответом ({len(r.text) if r.text else 0} симв.), попробуем еще раз")
+                            # НЕ вызываем raise_for_status для 400/422 - пусть retry цикл обработает
+                            continue  # Пропускаем этот attempt и пробуем следующий
+                    elif r.status_code in [200, 201, 202]:
+                        html = r.text
+                    else:
+                        r.raise_for_status()
+                        html = r.text
+                    
+                    # Проверка на блокировку
+                    if "You're Temporarily Blocked" in html or "going too fast" in html:
+                        if hasattr(r, 'request'):
                             raise httpx.HTTPStatusError("Temporary block", request=r.request, response=r)
-                        
-                        # Проверка на JavaScript редирект
-                        if 'http-equiv="refresh"' in html and '_fb_noscript=1' in html:
-                            # Получили страницу с редиректом, но уже с _fb_noscript - это ошибка
+                        else:
+                            raise Exception("Temporary block detected")
+                    
+                    # Проверка на JavaScript редирект
+                    if 'http-equiv="refresh"' in html and '_fb_noscript=1' in html:
+                        # Получили страницу с редиректом, но уже с _fb_noscript - это ошибка
+                        if hasattr(r, 'request'):
                             raise httpx.HTTPStatusError("JS redirect page despite _fb_noscript=1", request=r.request, response=r)
-                        
-                        elif 'http-equiv="refresh"' in html and 'URL=' in html:
-                            # Обнаружен JavaScript редирект, попробуем с _fb_noscript=1
-                            import re
-                            redirect_match = re.search(r'URL=([^"]+)', html)
-                            if redirect_match:
-                                redirect_url = redirect_match.group(1)
-                                if not redirect_url.startswith('http'):
-                                    # Относительный URL
-                                    from urllib.parse import urljoin
-                                    redirect_url = urljoin(url, redirect_url)
-                                
-                                log.info(f"🔄 JS редирект обнаружен, переходим на: {redirect_url}")
-                                r = await client.get(redirect_url, headers=headers)
-                                r.raise_for_status()
-                                html = r.text
-                        
-                        break  # Успешно!
-                    except (httpx.HTTPStatusError, httpx.ProxyError) as e:
-                        # Особая логика для ProxyError - статус может быть в сообщении
-                        if isinstance(e, httpx.ProxyError):
-                            # Пытаемся извлечь статус из сообщения
-                            error_msg = str(e)
-                            status = 422 if '422' in error_msg else 0
-                            response_text = ''
-                            log.info(f"🔍 ProxyError: сообщение='{error_msg}', извлечен статус={status}")
                         else:
-                            status = getattr(e.response, 'status_code', 0) if hasattr(e, 'response') else 0
-                            response_text = getattr(e.response, 'text', '') if hasattr(e, 'response') and e.response else ''
-                            log.info(f"🔍 {type(e).__name__} пойман: статус {status}, HTML: {len(response_text)} симв")
-                        
-                        # Особая обработка 422 - для ProxyError проверяем response_text
-                        if status == 422:
-                            is_meta_site = any(domain in url for domain in ["transparency.meta.com", "facebook.com", "about.fb.com", "developers.facebook.com"])
-                            if is_meta_site:
-                                if isinstance(e, httpx.ProxyError):
-                                    # Для ProxyError от Meta - пробуем запрос без прокси
-                                    log.warning(f"⚠️ 422 ProxyError от Meta, пробуем без прокси...")
-                                    try:
-                                        # Краткий запрос без прокси для получения HTML
-                                        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0), verify=False) as direct_client:
-                                            direct_r = await direct_client.get(url, headers=headers)
-                                            if direct_r.status_code in [200, 422] and direct_r.text and len(direct_r.text) > 1000:
-                                                log.info(f"✅ Получен HTML без прокси: {len(direct_r.text)} симв")
-                                                html = direct_r.text
-                                                err = None
-                                                # Принудительно выходим из всех retry циклов
-                                                break  # Из исключения
-                                    except Exception as direct_e:
-                                        log.warning(f"⚠️ Прямой запрос тоже не сработал: {direct_e}")
-                                else:
-                                    # Обычная обработка HTTPStatusError
-                                    available_html = html or response_text
-                                    if available_html and len(available_html.strip()) > 100:
-                                        log.info(f"✅ 422 от Meta: HTML получен ({len(available_html)} симв.), продолжаем")
-                                        html = available_html
-                                        err = None
-                                        break
-                        
-                        # 407/403 для MD -> пробуем fallback на EU
-                        if status in (407, 403) and region == "MD" and PROXY_FALLBACK_EU and PROXY_URL_EU and attempt == 0:
-                            log.warning(f"⚠️ Ошибка {status} для MD прокси, переключаемся на EU fallback...")
-                            # Переключаемся на EU прокси
-                            proxies = _get_proxy_for_region("EU", proxy_country, session_id)
-                            used_fallback = True
-                            await asyncio.sleep(2)  # Быстрое переключение на EU
-                            continue
-                        
-                        if status in (500, 502, 503, 429, 403, 407):
-                            err = e
-                            if attempt < FETCH_RETRIES - 1:
-                                backoff = FETCH_RETRY_BACKOFF * (1.5 ** attempt) + random.random() * 2  # Быстрые retry
-                                if status == 500:
-                                    log.warning(f"⚠️ Сервер Meta недоступен (500), попытка {attempt+1}/{FETCH_RETRIES}, ожидание {backoff:.1f} сек...")
-                                else:
-                                    log.warning(f"⚠️ Ошибка {status} при загрузке {url}, попытка {attempt+1}/{FETCH_RETRIES}, ожидание {backoff:.1f} сек...")
-                                await asyncio.sleep(backoff)
-                                headers = _get_random_headers(url, accept_lang)
+                            raise Exception("JS redirect page despite _fb_noscript=1")
+                    
+                    elif 'http-equiv="refresh"' in html and 'URL=' in html:
+                        # Обнаружен JavaScript редирект, попробуем с _fb_noscript=1
+                        import re
+                        redirect_match = re.search(r'URL=([^"]+)', html)
+                        if redirect_match:
+                            redirect_url = redirect_match.group(1)
+                            if not redirect_url.startswith('http'):
+                                # Относительный URL
+                                from urllib.parse import urljoin
+                                redirect_url = urljoin(url, redirect_url)
+                            
+                            log.info(f"🔄 JS редирект обнаружен, переходим на: {redirect_url}")
+                            
+                            if use_curl_cffi:
+                                timeout_seconds = TIMEOUT.total if hasattr(TIMEOUT, 'total') else 30.0
+                                r = await _fetch_with_curl_cffi(redirect_url, headers, proxies, timeout_seconds)
                             else:
-                                if status == 429:
-                                    log.error(f"❌ Facebook заблокировал запросы: {url}. Пропускаем.")
-                                    err = None
-                                    break
-                                raise
+                                # Для httpx создаем новый клиент
+                                async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True, proxies=proxies, verify=verify_ssl) as redirect_client:
+                                    r = await redirect_client.get(redirect_url, headers=headers)
+                                    r.raise_for_status()
+                            html = r.text
+                    
+                    break  # Успешно!
+                except (httpx.HTTPStatusError, httpx.ProxyError, Exception) as e:
+                    # Обработка ошибок для обоих httpx и curl-cffi
+                    if isinstance(e, httpx.ProxyError):
+                        # Пытаемся извлечь статус из сообщения
+                        error_msg = str(e)
+                        if '400' in error_msg:
+                            status = 400
+                        elif '422' in error_msg:
+                            status = 422
+                        elif '500' in error_msg:
+                            status = 500
                         else:
-                            raise
-                    except Exception as e:
+                            status = 0
+                        response_text = ''
+                        log.info(f"🔍 ProxyError: сообщение='{error_msg}', извлечен статус={status}")
+                    elif isinstance(e, httpx.HTTPStatusError):
+                        status = getattr(e.response, 'status_code', 0) if hasattr(e, 'response') else 0
+                        response_text = getattr(e.response, 'text', '') if hasattr(e, 'response') and e.response else ''
+                        log.info(f"🔍 {type(e).__name__} пойман: статус {status}, HTML: {len(response_text)} симв")
+                    else:
+                        # Ошибки curl-cffi или другие
+                        status = 0
+                        response_text = ''
+                        log.info(f"🔍 {type(e).__name__}: {str(e)}")
+                    
+                    # curl-cffi должен решить проблему TLS fingerprinting
+                    if use_curl_cffi:
+                        log.warning(f"⚠️ Ошибка с curl-cffi: {e}")
+                    
+                    # 407/403 для MD -> пробуем fallback на EU
+                    if status in (407, 403) and region == "MD" and PROXY_FALLBACK_EU and PROXY_URL_EU and attempt == 0:
+                        log.warning(f"⚠️ Ошибка {status} для MD прокси, переключаемся на EU fallback...")
+                        # Переключаемся на EU прокси
+                        proxies = _get_proxy_for_region("EU", proxy_country, session_id)
+                        used_fallback = True
+                        await asyncio.sleep(2)  # Быстрое переключение на EU
+                        continue
+                    
+                    if status in (500, 502, 503, 429, 403, 407):
                         err = e
                         if attempt < FETCH_RETRIES - 1:
-                            backoff = FETCH_RETRY_BACKOFF * (1.2 ** attempt)  # Быстрые retry
+                            backoff = FETCH_RETRY_BACKOFF * (1.5 ** attempt) + random.random() * 2  # Быстрые retry
+                            if status == 500:
+                                log.warning(f"⚠️ Сервер Meta недоступен (500), попытка {attempt+1}/{FETCH_RETRIES}, ожидание {backoff:.1f} сек...")
+                            else:
+                                log.warning(f"⚠️ Ошибка {status} при загрузке {url}, попытка {attempt+1}/{FETCH_RETRIES}, ожидание {backoff:.1f} сек...")
                             await asyncio.sleep(backoff)
                             headers = _get_random_headers(url, accept_lang)
                         else:
+                            if status == 429:
+                                log.error(f"❌ Facebook заблокировал запросы: {url}. Пропускаем.")
+                                err = None
+                                break
                             raise
+                    else:
+                        raise
                 else:
                     # Проверяем если HTML получен через fallback - не выбрасываем ошибку
                     if html:
@@ -467,15 +535,15 @@ async def run_update() -> dict:
                         err = None  # Сбрасываем ошибку
                     elif err:
                         raise err
-            except Exception as e:
-                log.info(f"🔍 Внешний Exception пойман: {type(e).__name__}: {e}, HTML: {len(html) if html else 0} симв")
-                # Проверяем, что не получили ли HTML во время 422 ошибки
-                if html:
-                    log.info(f"✅ HTML получен несмотря на ошибку ({len(html)} симв.), продолжаем обработку")
-                else:
-                    log.error("Ошибка при загрузке %s: %s", url, e)
-                    errors.append({"tag": tag, "url": url, "region": region, "error": str(e)})
-                    continue
+        except Exception as e:
+            log.info(f"🔍 Внешний Exception пойман: {type(e).__name__}: {e}, HTML: {len(html) if html else 0} симв")
+            # Проверяем, что не получили ли HTML во время 422 ошибки
+            if html:
+                log.info(f"✅ HTML получен несмотря на ошибку ({len(html)} симв.), продолжаем обработку")
+            else:
+                log.error("Ошибка при загрузке %s: %s", url, e)
+                errors.append({"tag": tag, "url": url, "region": region, "error": str(e)})
+                continue
         
         if not html:
             errors.append({"tag": tag, "url": url, "region": region, "error": "No HTML received"})

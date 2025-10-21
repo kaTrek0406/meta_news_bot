@@ -37,3 +37,7 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Test files for proxy/HTTP debugging
+test_*.py
+debug_*.py
