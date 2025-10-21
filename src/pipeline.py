@@ -291,14 +291,10 @@ async def run_update() -> dict:
     try:
         # IP без прокси (только для сравнения)
         try:
-            if CURL_CFFI_AVAILABLE:
-                r = await _fetch_with_curl_cffi("https://httpbin.org/ip", {}, None, 5.0)
-                import json
-                direct_ip = json.loads(r.text).get('origin')
-            else:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
-                    r = await client.get("https://httpbin.org/ip")
-                    direct_ip = r.json().get('origin')
+            # Используем только httpx для проверки IP (curl-cffi не работает на Railway)
+            async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+                r = await client.get("https://httpbin.org/ip")
+                direct_ip = r.json().get('origin')
             log.info(f"🌎 Прямой IP Railway: {direct_ip}")
         except Exception as ip_e:
             direct_ip = "unknown"
@@ -309,14 +305,10 @@ async def run_update() -> dict:
             test_proxies = _get_proxy_for_region("GLOBAL", None, "ip_test")
             if test_proxies:
                 try:
-                    if CURL_CFFI_AVAILABLE:
-                        r = await _fetch_with_curl_cffi("https://httpbin.org/ip", {}, test_proxies, 5.0)
-                        import json
-                        proxy_ip = json.loads(r.text).get('origin')
-                    else:
-                        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0), proxies=test_proxies, verify=False) as client:
-                            r = await client.get("https://httpbin.org/ip")
-                            proxy_ip = r.json().get('origin')
+                    # Используем только httpx (через curl-cffi точно не сработает)
+                    async with httpx.AsyncClient(timeout=httpx.Timeout(5.0), proxies=test_proxies, verify=False) as client:
+                        r = await client.get("https://httpbin.org/ip")
+                        proxy_ip = r.json().get('origin')
                     
                     log.info(f"🌎 IP через прокси: {proxy_ip}")
                     if direct_ip == proxy_ip:
@@ -393,7 +385,9 @@ async def run_update() -> dict:
         used_fallback = False
         
         # Используем curl-cffi для ВСЕХ запросов через прокси
-        use_curl_cffi = CURL_CFFI_AVAILABLE and USE_PROXY
+        # ОТКЛЮЧЕНО на Railway - curl-cffi не работает с прокси там
+        # use_curl_cffi = CURL_CFFI_AVAILABLE and USE_PROXY
+        use_curl_cffi = False
         
         try:
             # Retry логика
