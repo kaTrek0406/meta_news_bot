@@ -495,6 +495,15 @@ async def run_update() -> dict:
                     if use_curl_cffi:
                         log.warning(f"⚠️ Ошибка с curl-cffi: {e}")
                     
+                    # ProxyError 500 - прокси не может достучаться до Meta, пробуем без прокси
+                    if isinstance(e, httpx.ProxyError) and status == 500 and attempt == 0:
+                        log.warning(f"⚠️ ProxyError 500 - прокси заблокирован Meta. Пробуем прямое подключение...")
+                        proxies = None  # Отключаем прокси
+                        verify_ssl = True  # Включаем SSL проверку
+                        used_fallback = True
+                        await asyncio.sleep(2)
+                        continue
+                    
                     # 407/403 для MD -> пробуем fallback на EU
                     if status in (407, 403) and region == "MD" and PROXY_FALLBACK_EU and PROXY_URL_EU and attempt == 0:
                         log.warning(f"⚠️ Ошибка {status} для MD прокси, переключаемся на EU fallback...")
