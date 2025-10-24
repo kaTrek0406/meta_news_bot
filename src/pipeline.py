@@ -96,6 +96,10 @@ def _get_proxy_for_region(region: str, proxy_country: Optional[str] = None, sess
         else:
             log.debug(f"🔐 Froxy прокси: region={region}")
             return {"http://": base_url, "https://": base_url}
+    elif PROXY_PROVIDER == "brightdata":
+        # Bright Data прокси: session уже в URL, просто возвращаем
+        log.debug(f"🔐 Bright Data прокси: region={region}")
+        return {"http://": base_url, "https://": base_url}
     else:
         # Другие прокси-провайдеры
         log.debug(f"🔐 Прокси: region={region}, provider={PROXY_PROVIDER}")
@@ -378,8 +382,8 @@ async def run_update() -> dict:
         accept_lang = custom_lang or _DEFAULT_LANG_BY_REGION.get(region, "en-US,en;q=0.9")
         headers = _get_random_headers(url, accept_lang)
         
-        # SSL проверка: отключаем при прокси
-        verify_ssl = proxies is None
+        # SSL проверка: отключаем для Bright Data
+        verify_ssl = False if PROXY_PROVIDER == "brightdata" else (proxies is None)
         
         html = None
         used_fallback = False
